@@ -1,0 +1,23 @@
+{
+  "name": "donde-invierto",
+  "version": "1.0.0",
+  "description": "¿Dónde invierto? — a Spain vs Australia investment comparator (F#/Fable, Elmish + Feliz)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "restore": "dotnet tool restore",
+    "prestart": "dotnet tool restore",
+    "prebuild": "dotnet tool restore",
+    "start": "dotnet fable watch src --run vite",
+    "build": "dotnet fable src --run vite build",
+    "preview": "vite preview",
+    "clean": "dotnet fable clean --yes src"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

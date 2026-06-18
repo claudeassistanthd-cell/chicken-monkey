@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- This project is only ever compiled by Fable to JavaScript;
+         the TargetFramework just keeps the F# tooling/IDE happy. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="Format.fs" />
+    <Compile Include="Tax.fs" />
+    <Compile Include="Engine.fs" />
+    <Compile Include="State.fs" />
+    <Compile Include="Chart.fs" />
+    <Compile Include="View.fs" />
+    <Compile Include="Main.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Fable.Core" Version="4.3.0" />
+    <PackageReference Include="Feliz" Version="2.8.0" />
+    <PackageReference Include="Fable.Elmish" Version="4.2.0" />
+    <PackageReference Include="Fable.Elmish.React" Version="4.0.0" />
+  </ItemGroup>
+
+</Project>
