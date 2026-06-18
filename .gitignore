@@ -1,0 +1,19 @@
+# .NET
+bin/
+obj/
+
+# Fable
+.fable/
+fable_modules/
+*.fs.js
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# Editor / OS
+.vs/
+.idea/
+*.user
+.DS_Store
