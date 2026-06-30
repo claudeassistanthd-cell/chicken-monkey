@@ -1,0 +1,264 @@
+{
+  "generatedAt": "2026-06-30T12:00:00+02:00",
+  "meta": {
+    "groupsCount": 12,
+    "knockoutTeams": 32,
+    "last32Decided": "4 / 16",
+    "finalDateShort": "Jul 19",
+    "resultsThrough": "30 Jun",
+    "tiesRemaining": 12,
+    "follow": { "team": "Spain", "next": "vs Austria — Thu 2 Jul, 21:00 (Madrid)." },
+    "home": { "team": "Australia", "next": "vs Egypt — Fri 3 Jul, 20:00." }
+  },
+  "groups": [
+    { "name": "Group A", "rows": [
+      { "pos": 1, "flag": "🇲🇽", "name": "Mexico", "record": "3-0-0", "pts": 9, "cls": "a" },
+      { "pos": 2, "flag": "🇿🇦", "name": "South Africa", "record": "1-1-1", "pts": 4, "cls": "a" },
+      { "pos": 3, "flag": "🇰🇷", "name": "South Korea", "record": "1-0-2", "pts": 3, "cls": "o" },
+      { "pos": 4, "flag": "🇨🇿", "name": "Czechia", "record": "0-1-2", "pts": 1, "cls": "o" }
+    ]},
+    { "name": "Group B", "rows": [
+      { "pos": 1, "flag": "🇨🇭", "name": "Switzerland", "record": "2-1-0", "pts": 7, "cls": "a" },
+      { "pos": 2, "flag": "🇨🇦", "name": "Canada", "record": "1-1-1", "pts": 4, "cls": "a" },
+      { "pos": 3, "flag": "🇧🇦", "name": "Bosnia", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇶🇦", "name": "Qatar", "record": "0-1-2", "pts": 1, "cls": "o" }
+    ]},
+    { "name": "Group C", "rows": [
+      { "pos": 1, "flag": "🇧🇷", "name": "Brazil", "record": "2-1-0", "pts": 7, "cls": "a" },
+      { "pos": 2, "flag": "🇲🇦", "name": "Morocco", "record": "2-1-0", "pts": 7, "cls": "a" },
+      { "pos": 3, "flag": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "name": "Scotland", "record": "1-0-2", "pts": 3, "cls": "o" },
+      { "pos": 4, "flag": "🇭🇹", "name": "Haiti", "record": "0-0-3", "pts": 0, "cls": "o" }
+    ]},
+    { "name": "Group D", "rows": [
+      { "pos": 1, "flag": "🇺🇸", "name": "USA", "record": "2-0-1", "pts": 6, "cls": "a" },
+      { "pos": 2, "flag": "🇦🇺", "name": "Australia", "record": "1-1-1", "pts": 4, "cls": "a", "fav": "aus" },
+      { "pos": 3, "flag": "🇵🇾", "name": "Paraguay", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇹🇷", "name": "Türkiye", "record": "1-0-2", "pts": 3, "cls": "o" }
+    ]},
+    { "name": "Group E", "rows": [
+      { "pos": 1, "flag": "🇩🇪", "name": "Germany", "record": "2-0-1", "pts": 6, "cls": "a" },
+      { "pos": 2, "flag": "🇨🇮", "name": "Ivory Coast", "record": "2-0-1", "pts": 6, "cls": "a" },
+      { "pos": 3, "flag": "🇪🇨", "name": "Ecuador", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇨🇼", "name": "Curaçao", "record": "0-1-2", "pts": 1, "cls": "o" }
+    ]},
+    { "name": "Group F", "rows": [
+      { "pos": 1, "flag": "🇳🇱", "name": "Netherlands", "record": "2-1-0", "pts": 7, "cls": "a" },
+      { "pos": 2, "flag": "🇯🇵", "name": "Japan", "record": "1-2-0", "pts": 5, "cls": "a" },
+      { "pos": 3, "flag": "🇸🇪", "name": "Sweden", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇹🇳", "name": "Tunisia", "record": "0-0-3", "pts": 0, "cls": "o" }
+    ]},
+    { "name": "Group G", "rows": [
+      { "pos": 1, "flag": "🇧🇪", "name": "Belgium", "record": "1-2-0", "pts": 5, "cls": "a" },
+      { "pos": 2, "flag": "🇪🇬", "name": "Egypt", "record": "1-2-0", "pts": 5, "cls": "a" },
+      { "pos": 3, "flag": "🇮🇷", "name": "Iran", "record": "0-3-0", "pts": 3, "cls": "o" },
+      { "pos": 4, "flag": "🇳🇿", "name": "New Zealand", "record": "0-1-2", "pts": 1, "cls": "o" }
+    ]},
+    { "name": "Group H", "rows": [
+      { "pos": 1, "flag": "🇪🇸", "name": "Spain", "record": "2-1-0", "pts": 7, "cls": "a", "fav": "esp" },
+      { "pos": 2, "flag": "🇨🇻", "name": "Cape Verde", "record": "0-3-0", "pts": 3, "cls": "a" },
+      { "pos": 3, "flag": "🇺🇾", "name": "Uruguay", "record": "0-2-1", "pts": 2, "cls": "o" },
+      { "pos": 4, "flag": "🇸🇦", "name": "Saudi Arabia", "record": "0-2-1", "pts": 2, "cls": "o" }
+    ]},
+    { "name": "Group I", "rows": [
+      { "pos": 1, "flag": "🇫🇷", "name": "France", "record": "3-0-0", "pts": 9, "cls": "a" },
+      { "pos": 2, "flag": "🇳🇴", "name": "Norway", "record": "2-0-1", "pts": 6, "cls": "a" },
+      { "pos": 3, "flag": "🇸🇳", "name": "Senegal", "record": "1-0-2", "pts": 3, "cls": "t" },
+      { "pos": 4, "flag": "🇮🇶", "name": "Iraq", "record": "0-0-3", "pts": 0, "cls": "o" }
+    ]},
+    { "name": "Group J", "rows": [
+      { "pos": 1, "flag": "🇦🇷", "name": "Argentina", "record": "3-0-0", "pts": 9, "cls": "a" },
+      { "pos": 2, "flag": "🇦🇹", "name": "Austria", "record": "1-1-1", "pts": 4, "cls": "a" },
+      { "pos": 3, "flag": "🇩🇿", "name": "Algeria", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇯🇴", "name": "Jordan", "record": "0-0-3", "pts": 0, "cls": "o" }
+    ]},
+    { "name": "Group K", "rows": [
+      { "pos": 1, "flag": "🇨🇴", "name": "Colombia", "record": "2-1-0", "pts": 7, "cls": "a" },
+      { "pos": 2, "flag": "🇵🇹", "name": "Portugal", "record": "1-2-0", "pts": 5, "cls": "a" },
+      { "pos": 3, "flag": "🇨🇩", "name": "Congo DR", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇺🇿", "name": "Uzbekistan", "record": "0-0-3", "pts": 0, "cls": "o" }
+    ]},
+    { "name": "Group L", "rows": [
+      { "pos": 1, "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "name": "England", "record": "2-1-0", "pts": 7, "cls": "a" },
+      { "pos": 2, "flag": "🇭🇷", "name": "Croatia", "record": "2-1-0", "pts": 6, "cls": "a" },
+      { "pos": 3, "flag": "🇬🇭", "name": "Ghana", "record": "1-1-1", "pts": 4, "cls": "t" },
+      { "pos": 4, "flag": "🇵🇦", "name": "Panama", "record": "0-0-3", "pts": 0, "cls": "o" }
+    ]}
+  ],
+  "knockout": {
+    "r32": [
+      [
+        { "id": "r32-1", "status": "done", "when": "Mon 29 Jun · FT",
+          "teams": [
+            { "flag": "🇩🇪", "name": "Germany", "score": 1, "role": "l" },
+            { "flag": "🇵🇾", "name": "Paraguay", "score": 1, "role": "w" }
+          ], "pens": "✓ Paraguay win 4–3 on pens" },
+        { "id": "r32-2", "status": "scheduled", "when": "Tue 30 Jun · 23:00",
+          "teams": [
+            { "flag": "🇫🇷", "name": "France", "score": null, "role": null },
+            { "flag": "🇸🇪", "name": "Sweden", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r32-3", "status": "done", "when": "Sun 28 Jun · FT",
+          "teams": [
+            { "flag": "🇿🇦", "name": "South Africa", "score": 0, "role": "l" },
+            { "flag": "🇨🇦", "name": "Canada", "score": 1, "role": "w" }
+          ] },
+        { "id": "r32-4", "status": "done", "when": "Mon 29 Jun · FT",
+          "teams": [
+            { "flag": "🇳🇱", "name": "Netherlands", "score": 1, "role": "l" },
+            { "flag": "🇲🇦", "name": "Morocco", "score": 1, "role": "w" }
+          ], "pens": "✓ Morocco win 3–2 on pens" }
+      ],
+      [
+        { "id": "r32-5", "status": "scheduled", "when": "Thu 2 Jul · 21:00", "fav": "esp",
+          "tagpin": { "text": "Following", "colorVar": "live" },
+          "teams": [
+            { "flag": "🇪🇸", "name": "Spain", "score": null, "role": null },
+            { "flag": "🇦🇹", "name": "Austria", "score": null, "role": null }
+          ] },
+        { "id": "r32-6", "status": "scheduled", "when": "Fri 3 Jul · 01:00",
+          "teams": [
+            { "flag": "🇵🇹", "name": "Portugal", "score": null, "role": null },
+            { "flag": "🇭🇷", "name": "Croatia", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r32-7", "status": "scheduled", "when": "Thu 2 Jul · 02:00",
+          "teams": [
+            { "flag": "🇺🇸", "name": "USA", "score": null, "role": null },
+            { "flag": "🇧🇦", "name": "Bosnia", "score": null, "role": null }
+          ] },
+        { "id": "r32-8", "status": "scheduled", "when": "Wed 1 Jul · 22:00",
+          "teams": [
+            { "flag": "🇧🇪", "name": "Belgium", "score": null, "role": null },
+            { "flag": "🇸🇳", "name": "Senegal", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r32-9", "status": "done", "when": "Mon 29 Jun · FT",
+          "teams": [
+            { "flag": "🇧🇷", "name": "Brazil", "score": 2, "role": "w" },
+            { "flag": "🇯🇵", "name": "Japan", "score": 1, "role": "l" }
+          ] },
+        { "id": "r32-10", "status": "scheduled", "when": "Tue 30 Jun · 19:00",
+          "teams": [
+            { "flag": "🇨🇮", "name": "Ivory Coast", "score": null, "role": null },
+            { "flag": "🇳🇴", "name": "Norway", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r32-11", "status": "scheduled", "when": "Wed 1 Jul · 03:00",
+          "teams": [
+            { "flag": "🇲🇽", "name": "Mexico", "score": null, "role": null },
+            { "flag": "🇪🇨", "name": "Ecuador", "score": null, "role": null }
+          ] },
+        { "id": "r32-12", "status": "scheduled", "when": "Wed 1 Jul · 18:00",
+          "teams": [
+            { "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "name": "England", "score": null, "role": null },
+            { "flag": "🇨🇩", "name": "Congo DR", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r32-13", "status": "scheduled", "when": "Fri 3 Jul · 20:00", "fav": "aus",
+          "tagpin": { "text": "Home", "colorVar": "green" },
+          "teams": [
+            { "flag": "🇦🇺", "name": "Australia", "score": null, "role": null },
+            { "flag": "🇪🇬", "name": "Egypt", "score": null, "role": null }
+          ] },
+        { "id": "r32-14", "status": "scheduled", "when": "Sat 4 Jul · 00:00",
+          "teams": [
+            { "flag": "🇦🇷", "name": "Argentina", "score": null, "role": null },
+            { "flag": "🇨🇻", "name": "Cape Verde", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r32-15", "status": "scheduled", "when": "Fri 3 Jul · 05:00",
+          "teams": [
+            { "flag": "🇨🇭", "name": "Switzerland", "score": null, "role": null },
+            { "flag": "🇩🇿", "name": "Algeria", "score": null, "role": null }
+          ] },
+        { "id": "r32-16", "status": "scheduled", "when": "Sat 4 Jul · 03:30",
+          "teams": [
+            { "flag": "🇨🇴", "name": "Colombia", "score": null, "role": null },
+            { "flag": "🇬🇭", "name": "Ghana", "score": null, "role": null }
+          ] }
+      ]
+    ],
+    "r16": [
+      [
+        { "id": "r16-1", "status": "scheduled", "when": "Sat 4 Jul · Philadelphia",
+          "teams": [
+            { "flag": "🇵🇾", "name": "Paraguay", "score": null, "role": null },
+            { "tbd": true, "feeder": "Fra / Swe" }
+          ] },
+        { "id": "r16-2", "status": "scheduled", "when": "Sat 4 Jul · Houston",
+          "teams": [
+            { "flag": "🇨🇦", "name": "Canada", "score": null, "role": null },
+            { "flag": "🇲🇦", "name": "Morocco", "score": null, "role": null }
+          ] }
+      ],
+      [
+        { "id": "r16-3", "status": "scheduled", "when": "Mon 6 Jul · Dallas", "route": "esp",
+          "tagpin": { "text": "Spain’s route", "colorVar": "live" },
+          "teams": [
+            { "tbd": true, "feeder": "Esp / Aut" },
+            { "tbd": true, "feeder": "Por / Cro" }
+          ] },
+        { "id": "r16-4", "status": "scheduled", "when": "Mon 6 Jul · Seattle",
+          "teams": [
+            { "tbd": true, "feeder": "USA / Bih" },
+            { "tbd": true, "feeder": "Bel / Sen" }
+          ] }
+      ],
+      [
+        { "id": "r16-5", "status": "scheduled", "when": "Sun 5 Jul · New Jersey",
+          "teams": [
+            { "flag": "🇧🇷", "name": "Brazil", "score": null, "role": null },
+            { "tbd": true, "feeder": "Civ / Nor" }
+          ] },
+        { "id": "r16-6", "status": "scheduled", "when": "Sun 5 Jul · Mexico City",
+          "teams": [
+            { "tbd": true, "feeder": "Mex / Ecu" },
+            { "tbd": true, "feeder": "Eng / Cod" }
+          ] }
+      ],
+      [
+        { "id": "r16-7", "status": "scheduled", "when": "Sat 4 Jul · Atlanta", "route": "aus",
+          "tagpin": { "text": "Australia’s route", "colorVar": "green" },
+          "teams": [
+            { "tbd": true, "feeder": "Aus / Egy" },
+            { "tbd": true, "feeder": "Arg / Cpv" }
+          ] },
+        { "id": "r16-8", "status": "scheduled", "when": "Sun 5 Jul · Vancouver",
+          "teams": [
+            { "tbd": true, "feeder": "Sui / Dza" },
+            { "tbd": true, "feeder": "Col / Gha" }
+          ] }
+      ]
+    ],
+    "qf": [
+      [
+        { "id": "qf-1", "status": "scheduled", "when": "Thu 9 Jul",
+          "teams": [ { "tbd": true, "feeder": "TBD" }, { "tbd": true, "feeder": "TBD" } ] },
+        { "id": "qf-2", "status": "scheduled", "when": "Fri 10 Jul",
+          "teams": [ { "tbd": true, "feeder": "TBD" }, { "tbd": true, "feeder": "TBD" } ] }
+      ],
+      [
+        { "id": "qf-3", "status": "scheduled", "when": "Fri 10 Jul",
+          "teams": [ { "tbd": true, "feeder": "TBD" }, { "tbd": true, "feeder": "TBD" } ] },
+        { "id": "qf-4", "status": "scheduled", "when": "Sat 11 Jul",
+          "teams": [ { "tbd": true, "feeder": "TBD" }, { "tbd": true, "feeder": "TBD" } ] }
+      ]
+    ],
+    "sf": [
+      [
+        { "id": "sf-1", "status": "scheduled", "when": "Tue 14 Jul",
+          "teams": [ { "tbd": true, "feeder": "TBD" }, { "tbd": true, "feeder": "TBD" } ] },
+        { "id": "sf-2", "status": "scheduled", "when": "Wed 15 Jul",
+          "teams": [ { "tbd": true, "feeder": "TBD" }, { "tbd": true, "feeder": "TBD" } ] }
+      ]
+    ],
+    "final": { "when": "Sun 19 Jul · New Jersey" }
+  }
+}
