@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T19:17:23.620Z",
+  "generatedAt": "2026-07-01T20:57:25.022Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -621,19 +621,19 @@
         },
         {
           "id": "r32-8",
-          "status": "scheduled",
+          "status": "live",
           "when": "Wed 1 Jul · 22:00",
           "teams": [
             {
               "flag": "🇧🇪",
               "name": "Belgium",
-              "score": null,
+              "score": 0,
               "role": null
             },
             {
               "flag": "🇸🇳",
               "name": "Senegal",
-              "score": null,
+              "score": 1,
               "role": null
             }
           ],
