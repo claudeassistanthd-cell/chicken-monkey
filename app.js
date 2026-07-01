@@ -17,34 +17,56 @@ function esc(s) {
 function groupRowTemplate(row) {
   const favCls = row.fav ? ` fav-${row.fav}` : "";
   const star = row.fav ? '<span class="star">⭐</span>' : "";
-  return `<div class="row ${row.cls}${favCls}">
-    <span class="ps">${row.pos}</span>
-    <span class="fl">${row.flag}</span>
-    <span class="nm">${esc(row.name)}${star}</span>
-    <span class="wdl">${row.record}</span>
-    <span class="pt">${row.pts}</span>
-  </div>`;
+  // Text markers so advancing/eliminated state isn't color-only (Task 4)
+  const statusLabel =
+    row.cls === "o" ? '<span class="row-status out" aria-label="eliminated">out</span>' :
+    row.cls === "a" ? '<span class="row-status thru" aria-label="through">through</span>' : "";
+  return `<tr class="row ${row.cls}${favCls}">
+    <td class="ps">${row.pos}</td>
+    <td class="fl" aria-hidden="true">${row.flag}</td>
+    <td class="nm">${esc(row.name)}${star}${statusLabel}</td>
+    <td class="wdl">${row.record}</td>
+    <td class="pt">${row.pts}</td>
+  </tr>`;
 }
 
 function groupTemplate(group) {
-  return `<div class="grp">
-    <div class="grp__top"><span class="grp__name">${esc(group.name)}</span><span class="grp__sub">Full time</span></div>
-    ${group.rows.map(groupRowTemplate).join("")}
-  </div>`;
+  return `<div class="grp"><table>
+    <caption><div class="grp__top"><span class="grp__name">${esc(group.name)}</span><span class="grp__sub">Final standings</span></div></caption>
+    <thead><tr class="row-head">
+      <th scope="col">Pos</th>
+      <th scope="col" aria-hidden="true"></th>
+      <th scope="col">Team</th>
+      <th scope="col">W-D-L</th>
+      <th scope="col">Pts</th>
+    </tr></thead>
+    <tbody>${group.rows.map(groupRowTemplate).join("")}</tbody>
+  </table></div>`;
 }
 
 function renderGroups(groups) {
   document.getElementById("groups").innerHTML = groups.map(groupTemplate).join("");
 }
 
+function fmtKickoff(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString(navigator.language || "en", {
+      weekday: "short", day: "numeric", month: "short",
+      hour: "2-digit", minute: "2-digit", timeZoneName: "short",
+    });
+  } catch { return null; }
+}
+
 function ktTemplate(kt) {
   if (kt.tbd) {
     const labelCls = kt.feeder === "TBD" ? "cd" : "feeder";
-    return `<div class="kt tbd"><span class="fl">▫️</span><span class="${labelCls}">${esc(kt.feeder)}</span><span class="sc"></span></div>`;
+    const ariaLabel = kt.feeder && kt.feeder !== "TBD" ? `TBD — winner of ${kt.feeder}` : "TBD";
+    return `<div class="kt tbd"><span class="fl" aria-label="${ariaLabel}">▫️</span><span class="${labelCls}">${esc(kt.feeder)}</span><span class="sc"></span></div>`;
   }
   const roleCls = kt.role ? ` ${kt.role}` : "";
   const score = kt.score === null || kt.score === undefined ? "" : kt.score;
-  return `<div class="kt${roleCls}"><span class="fl">${kt.flag}</span><span class="cd">${esc(kt.name)}</span><span class="sc">${score}</span></div>`;
+  return `<div class="kt${roleCls}"><span class="fl" aria-hidden="true">${kt.flag}</span><span class="cd">${esc(kt.name)}</span><span class="sc">${score}</span></div>`;
 }
 
 function matchTemplate(m, tbdRound) {
@@ -58,8 +80,12 @@ function matchTemplate(m, tbdRound) {
     ? `<span class="tagpin" style="color:var(--${m.tagpin.colorVar})">${esc(m.tagpin.text)}</span>`
     : "";
   const pens = m.pens ? `<div class="pens">${esc(m.pens)}</div>` : "";
+  // Show kickoff in viewer's local timezone for upcoming/live matches (Task 2)
+  const whenText = (m.kickoff && m.status !== "done")
+    ? esc(fmtKickoff(m.kickoff) || m.when)
+    : esc(m.when);
   return `<div class="match" data-match-id="${m.id}"><div class="${cardCls}">
-    <div class="when">${esc(m.when)}${tag}</div>
+    <div class="when">${whenText}${tag}</div>
     ${m.teams.map(ktTemplate).join("")}
     ${pens}
   </div></div>`;
@@ -152,6 +178,8 @@ async function poll() {
     if (lastData && JSON.stringify(data) !== JSON.stringify(lastData)) {
       render(data);
       flashChangedMatches(lastData, data);
+      const ann = document.getElementById("live-announce");
+      if (ann) ann.textContent = "Scores updated";
     } else if (!lastData) {
       render(data);
     }
