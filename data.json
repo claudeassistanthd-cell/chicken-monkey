@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-01T12:16:06.679Z",
+  "generatedAt": "2026-07-01T15:14:59.471Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -818,7 +818,7 @@
         {
           "id": "r16-1",
           "status": "scheduled",
-          "when": "Sat 4 Jul · Philadelphia",
+          "when": "Sat 4 Jul · 23:00",
           "teams": [
             {
               "flag": "🇵🇾",
@@ -827,10 +827,13 @@
               "role": null
             },
             {
-              "tbd": true,
-              "feeder": "Fra / Swe"
+              "flag": "🇫🇷",
+              "name": "France",
+              "score": null,
+              "role": null
             }
-          ]
+          ],
+          "kickoff": "2026-07-04T21:00:00Z"
         },
         {
           "id": "r16-2",
@@ -894,7 +897,7 @@
         {
           "id": "r16-5",
           "status": "scheduled",
-          "when": "Sun 5 Jul · New Jersey",
+          "when": "Sun 5 Jul · 22:00",
           "teams": [
             {
               "flag": "🇧🇷",
@@ -903,10 +906,13 @@
               "role": null
             },
             {
-              "tbd": true,
-              "feeder": "Civ / Nor"
+              "flag": "🇳🇴",
+              "name": "Norway",
+              "score": null,
+              "role": null
             }
-          ]
+          ],
+          "kickoff": "2026-07-05T20:00:00Z"
         },
         {
           "id": "r16-6",
@@ -914,8 +920,10 @@
           "when": "Sun 5 Jul · Mexico City",
           "teams": [
             {
-              "tbd": true,
-              "feeder": "Mex / Ecu"
+              "flag": "🇲🇽",
+              "name": "Mexico",
+              "score": null,
+              "role": null
             },
             {
               "tbd": true,
