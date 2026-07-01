@@ -104,6 +104,87 @@ function apiStatusToSchema(apiStatus) {
   return "scheduled";
 }
 
+/* ───────── winner propagation ───────── */
+
+// Three-letter feeder code → canonical team name
+const FEEDER_CODES = {
+  "Fra": "France",     "Swe": "Sweden",
+  "Esp": "Spain",      "Aut": "Austria",
+  "Por": "Portugal",   "Cro": "Croatia",
+  "USA": "USA",        "Bih": "Bosnia",
+  "Bel": "Belgium",    "Sen": "Senegal",
+  "Civ": "Ivory Coast","Nor": "Norway",
+  "Mex": "Mexico",     "Ecu": "Ecuador",
+  "Eng": "England",    "Cod": "Congo DR",
+  "Aus": "Australia",  "Egy": "Egypt",
+  "Arg": "Argentina",  "Cpv": "Cape Verde",
+  "Sui": "Switzerland","Dza": "Algeria",
+  "Col": "Colombia",   "Gha": "Ghana",
+  "Bra": "Brazil",     "Jpn": "Japan",
+  "Ger": "Germany",    "Par": "Paraguay",
+  "Rsa": "South Africa","Can": "Canada",
+  "Ned": "Netherlands","Mar": "Morocco",
+};
+
+function resolveFeeder(feeder) {
+  if (!feeder || feeder === "TBD") return null;
+  const parts = feeder.split(" / ").map(c => FEEDER_CODES[c.trim()]).filter(Boolean);
+  return parts.length === 2 ? parts : null;
+}
+
+// R32 → R16: match TBD slots by feeder codes to the R32 winner
+function propagateFromFeeders(schema) {
+  // Build map: sorted team-key pair → winner team object
+  const r32Winners = new Map();
+  for (const pair of schema.knockout.r32) {
+    for (const m of pair) {
+      if (m.status !== "done") continue;
+      const winner = m.teams.find(t => !t.tbd && t.role === "w");
+      const loser  = m.teams.find(t => !t.tbd && t.role === "l");
+      if (!winner || !loser) continue;
+      const mk = [key(winner.name), key(loser.name)].sort().join("|");
+      r32Winners.set(mk, winner);
+    }
+  }
+
+  for (const pair of schema.knockout.r16) {
+    for (const match of pair) {
+      for (let ti = 0; ti < match.teams.length; ti++) {
+        const t = match.teams[ti];
+        if (!t.tbd || !t.feeder || t.feeder === "TBD") continue;
+        const names = resolveFeeder(t.feeder);
+        if (!names) continue;
+        const mk = names.map(n => key(n)).sort().join("|");
+        const winner = r32Winners.get(mk);
+        if (winner) {
+          match.teams[ti] = { flag: winner.flag, name: winner.name, score: null, role: null };
+        }
+      }
+    }
+  }
+}
+
+// R16 → QF and QF → SF: position-based propagation.
+// fromPairs[pi][mi] winner fills toPairs[⌊pi/2⌋][pi%2].teams[mi]
+function propagateByPosition(fromPairs, toPairs) {
+  for (let pi = 0; pi < fromPairs.length; pi++) {
+    const destPairIdx  = Math.floor(pi / 2);
+    const destMatchIdx = pi % 2;
+    const destMatch = toPairs[destPairIdx]?.[destMatchIdx];
+    if (!destMatch) continue;
+
+    for (let mi = 0; mi < fromPairs[pi].length; mi++) {
+      const srcMatch = fromPairs[pi][mi];
+      if (srcMatch.status !== "done") continue;
+      const winner = srcMatch.teams.find(t => !t.tbd && t.role === "w");
+      if (!winner) continue;
+      if (destMatch.teams[mi]?.tbd) {
+        destMatch.teams[mi] = { flag: winner.flag, name: winner.name, score: null, role: null };
+      }
+    }
+  }
+}
+
 /* ───────── knockout match patching ───────── */
 
 function findApiMatch(apiMatches, nameA, nameB) {
@@ -282,19 +363,24 @@ async function main() {
     (matchesByStage[m.stage] ??= []).push(m);
   }
 
-  const stageKeys = {
-    r32: "LAST_32",
-    r16: "LAST_16",
-    qf: "QUARTER_FINALS",
-    sf: "SEMI_FINALS",
-  };
-
-  for (const [schemaKey, apiStage] of Object.entries(stageKeys)) {
+  function patchStage(schemaKey, apiStage) {
     const apiMs = matchesByStage[apiStage] ?? [];
     for (const pair of schema.knockout[schemaKey] ?? []) {
       for (const m of pair) patchKnockoutMatch(m, apiMs);
     }
   }
+
+  // Multi-pass: patch a stage, propagate winners, then patch the next stage
+  patchStage("r32", "LAST_32");
+  propagateFromFeeders(schema);          // R32 winners → R16 TBD slots
+
+  patchStage("r16", "LAST_16");
+  propagateByPosition(schema.knockout.r16, schema.knockout.qf);  // R16 winners → QF
+
+  patchStage("qf", "QUARTER_FINALS");
+  propagateByPosition(schema.knockout.qf, schema.knockout.sf);   // QF winners → SF
+
+  patchStage("sf", "SEMI_FINALS");
 
   /* ── meta ── */
   deriveMeta(schema, apiMatches);
