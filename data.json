@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T18:49:59.423Z",
+  "generatedAt": "2026-07-02T20:11:10.362Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -555,7 +555,7 @@
       [
         {
           "id": "r32-5",
-          "status": "scheduled",
+          "status": "live",
           "when": "Thu 2 Jul · 21:00",
           "fav": "esp",
           "tagpin": {
@@ -566,13 +566,13 @@
             {
               "flag": "🇪🇸",
               "name": "Spain",
-              "score": null,
+              "score": 1,
               "role": null
             },
             {
               "flag": "🇦🇹",
               "name": "Austria",
-              "score": null,
+              "score": 0,
               "role": null
             }
           ],
