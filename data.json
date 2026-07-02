@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T05:57:09.598Z",
+  "generatedAt": "2026-07-02T11:43:46.472Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -919,7 +919,7 @@
         {
           "id": "r16-6",
           "status": "scheduled",
-          "when": "Sun 5 Jul · Mexico City",
+          "when": "Mon 6 Jul · 02:00",
           "teams": [
             {
               "flag": "🇲🇽",
@@ -933,7 +933,8 @@
               "score": null,
               "role": null
             }
-          ]
+          ],
+          "kickoff": "2026-07-06T00:00:00Z"
         }
       ],
       [
