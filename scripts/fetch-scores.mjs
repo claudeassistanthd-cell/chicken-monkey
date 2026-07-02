@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
- * Fetches 2026 World Cup standings and match results from football-data.org
- * and maps them into data.json, then regenerates the inline seed in index.html.
+ * Fetches 2026 World Cup standings and match results.
  *
- * Usage: SCORES_API_KEY=<key> node scripts/fetch-scores.mjs
- * Free tier: https://www.football-data.org/coverage (10 req/min, covers WC)
+ * Primary source:  football-data.org (requires SCORES_API_KEY secret)
+ * Secondary source: ESPN unofficial scoreboard API (no key, best-effort)
  *
- * Exits 1 without writing any files if the API call fails.
+ * ESPN is cross-checked in parallel: if it marks a match FINISHED that
+ * the primary API still has as SCHEDULED, the ESPN score is used so the
+ * bracket updates sooner.  ESPN failures are non-fatal.
+ *
+ * Exits 1 without writing any files if the primary API call fails.
  */
 
 import { readFileSync, writeFileSync } from "fs";
@@ -42,7 +45,7 @@ const FLAGS = {
   "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Croatia": "🇭🇷", "Ghana": "🇬🇭", "Panama": "🇵🇦",
 };
 
-// API team name → our canonical name
+// API / ESPN team name → our canonical name
 const NAME_MAP = {
   "United States": "USA",
   "Côte d'Ivoire": "Ivory Coast",
@@ -53,6 +56,8 @@ const NAME_MAP = {
   "Czech Republic": "Czechia",
   "DR Congo": "Congo DR",
   "Congo, DR": "Congo DR",
+  "Congo": "Congo DR",          // ESPN short form
+  "DRC": "Congo DR",
   "Democratic Republic of Congo": "Congo DR",
 };
 
@@ -67,6 +72,86 @@ function flag(name) {
 // Stable key for fuzzy team matching
 function key(name) {
   return normalize(name).toLowerCase().replace(/[\s\-'.]/g, "");
+}
+
+/* ───────── ESPN cross-check (free, no key) ───────── */
+
+const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world";
+
+async function fetchEspnDate(yyyymmdd) {
+  try {
+    const res = await fetch(`${ESPN_BASE}/scoreboard?dates=${yyyymmdd}`);
+    if (!res.ok) return [];
+    return (await res.json()).events ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchAllEspnEvents() {
+  // Cover a 14-day rolling window so we catch all R32 results regardless of
+  // when they were played.
+  const dates = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(Date.now() - i * 86_400_000);
+    return d.toISOString().slice(0, 10).replace(/-/g, "");
+  });
+  const settled = await Promise.allSettled(dates.map(fetchEspnDate));
+  const seen = new Set();
+  const events = [];
+  for (const r of settled) {
+    if (r.status !== "fulfilled") continue;
+    for (const ev of r.value) {
+      if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); }
+    }
+  }
+  console.log(`ESPN: ${events.length} events found across ${dates.length} dates.`);
+  return events;
+}
+
+// For any match ESPN marks FINISHED that football-data.org hasn't caught yet,
+// patch the apiMatches entry in-place so the rest of the pipeline treats it
+// as complete and propagates the winner correctly.
+function applyEspnCrossCheck(apiMatches, espnEvents) {
+  let patched = 0;
+  for (const ev of espnEvents) {
+    if (!ev.status?.type?.completed) continue;
+    const comp = ev.competitions?.[0];
+    const home = comp?.competitors?.find(c => c.homeAway === "home");
+    const away = comp?.competitors?.find(c => c.homeAway === "away");
+    if (!home || !away) continue;
+
+    const homeNorm = normalize(home.team.displayName);
+    const awayNorm = normalize(away.team.displayName);
+    const espnHomeGoals = Number(home.score ?? 0);
+    const espnAwayGoals = Number(away.score ?? 0);
+
+    const apiM = apiMatches.find(m => {
+      const h = key(normalize(m.homeTeam?.name || ""));
+      const a = key(normalize(m.awayTeam?.name || ""));
+      const eh = key(homeNorm), ea = key(awayNorm);
+      return (h === eh && a === ea) || (h === ea && a === eh);
+    });
+
+    if (!apiM || ["FINISHED", "AWARDED"].includes(apiM.status)) continue;
+
+    // Align home/away scores with the apiMatches orientation
+    const swapped = key(normalize(apiM.homeTeam?.name || "")) !== key(homeNorm);
+    const fHome = swapped ? espnAwayGoals : espnHomeGoals;
+    const fAway = swapped ? espnHomeGoals : espnAwayGoals;
+
+    console.log(`ESPN: ${homeNorm} ${espnHomeGoals}–${espnAwayGoals} ${awayNorm} → overriding ${apiM.status}`);
+    apiM.status = "FINISHED";
+    apiM.score = {
+      winner: fHome > fAway ? "HOME_TEAM" : fAway > fHome ? "AWAY_TEAM" : "DRAW",
+      duration: "REGULAR_TIME",
+      fullTime:  { home: fHome, away: fAway },
+      halfTime:  { home: null, away: null },
+      extraTime: { home: null, away: null },
+      penalties: { home: null, away: null },
+    };
+    patched++;
+  }
+  if (patched) console.log(`ESPN cross-check patched ${patched} match(es).`);
 }
 
 /* ───────── API helpers ───────── */
@@ -311,11 +396,16 @@ async function main() {
   const originalJson = readFileSync(dataPath, "utf8");
   const schema = JSON.parse(originalJson);
 
-  let standingsResp, matchesResp;
+  // Primary (football-data.org) and secondary (ESPN) run in parallel.
+  // ESPN failure is non-fatal; primary failure aborts without writing files.
+  let standingsResp, matchesResp, espnEvents;
   try {
-    [standingsResp, matchesResp] = await Promise.all([
-      apiFetch(`/competitions/${COMP}/standings`),
-      apiFetch(`/competitions/${COMP}/matches`),
+    [[standingsResp, matchesResp], espnEvents] = await Promise.all([
+      Promise.all([
+        apiFetch(`/competitions/${COMP}/standings`),
+        apiFetch(`/competitions/${COMP}/matches`),
+      ]),
+      fetchAllEspnEvents(),
     ]);
   } catch (err) {
     console.error("API fetch failed — keeping existing data:", err.message);
@@ -323,6 +413,7 @@ async function main() {
   }
 
   const apiMatches = matchesResp.matches ?? [];
+  applyEspnCrossCheck(apiMatches, espnEvents);
 
   /* ── group standings ── */
   const standingsByGroup = {};

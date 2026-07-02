@@ -2,9 +2,9 @@ name: Update Scores
 
 on:
   schedule:
-    # Every 10 minutes; GitHub cron minimum is 5 min but delivery can lag.
-    # The 20s client poll smooths any gap between runs.
-    - cron: '*/10 * * * *'
+    # Every 5 minutes (GitHub's minimum). ESPN cross-check runs in parallel
+    # so results arrive on-site within ~5 min of a match ending.
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
