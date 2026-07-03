@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T18:04:16.399Z",
+  "generatedAt": "2026-07-03T19:43:35.805Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -727,7 +727,7 @@
       [
         {
           "id": "r32-13",
-          "status": "scheduled",
+          "status": "live",
           "when": "Fri 3 Jul · 20:00",
           "fav": "aus",
           "tagpin": {
@@ -738,13 +738,13 @@
             {
               "flag": "🇦🇺",
               "name": "Australia",
-              "score": null,
+              "score": 1,
               "role": null
             },
             {
               "flag": "🇪🇬",
               "name": "Egypt",
-              "score": null,
+              "score": 1,
               "role": null
             }
           ],
