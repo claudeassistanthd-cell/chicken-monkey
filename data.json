@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-07-02T23:44:11.930Z",
+  "generatedAt": "2026-07-03T01:18:23.313Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
-    "last32Decided": "10 / 16",
+    "last32Decided": "11 / 16",
     "finalDateShort": "Jul 19",
-    "resultsThrough": "2 Jul",
-    "tiesRemaining": 6,
+    "resultsThrough": "3 Jul",
+    "tiesRemaining": 5,
     "follow": {
       "team": "Spain",
       "next": "vs Austria — Thu 2 Jul, 21:00 (Madrid)."
@@ -580,20 +580,20 @@
         },
         {
           "id": "r32-6",
-          "status": "live",
-          "when": "Fri 3 Jul · 01:00",
+          "status": "done",
+          "when": "Fri 3 Jul · FT",
           "teams": [
             {
               "flag": "🇵🇹",
               "name": "Portugal",
-              "score": 0,
-              "role": null
+              "score": 2,
+              "role": "l"
             },
             {
               "flag": "🇭🇷",
               "name": "Croatia",
-              "score": 0,
-              "role": null
+              "score": 2,
+              "role": "l"
             }
           ],
           "kickoff": "2026-07-02T23:00:00Z"
