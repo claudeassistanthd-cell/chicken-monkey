@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-07-03T20:44:24.976Z",
+  "generatedAt": "2026-07-03T21:46:58.419Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
-    "last32Decided": "12 / 16",
+    "last32Decided": "13 / 16",
     "finalDateShort": "Jul 19",
     "resultsThrough": "3 Jul",
-    "tiesRemaining": 4,
+    "tiesRemaining": 3,
     "follow": {
       "team": "Spain",
       "next": "vs Austria — Thu 2 Jul, 21:00 (Madrid)."
@@ -727,8 +727,8 @@
       [
         {
           "id": "r32-13",
-          "status": "live",
-          "when": "Fri 3 Jul · 20:00",
+          "status": "done",
+          "when": "Fri 3 Jul · FT",
           "fav": "aus",
           "tagpin": {
             "text": "Home",
@@ -738,17 +738,18 @@
             {
               "flag": "🇦🇺",
               "name": "Australia",
-              "score": 1,
+              "score": 3,
               "role": null
             },
             {
               "flag": "🇪🇬",
               "name": "Egypt",
-              "score": 1,
+              "score": 5,
               "role": null
             }
           ],
-          "kickoff": "2026-07-03T18:00:00Z"
+          "kickoff": "2026-07-03T18:00:00Z",
+          "pens": "✓ Egypt win 4–4 on pens"
         },
         {
           "id": "r32-14",
