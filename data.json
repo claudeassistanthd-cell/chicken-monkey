@@ -1,12 +1,12 @@
 {
-  "generatedAt": "2026-07-03T01:18:23.313Z",
+  "generatedAt": "2026-07-03T05:01:37.028Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
-    "last32Decided": "11 / 16",
+    "last32Decided": "12 / 16",
     "finalDateShort": "Jul 19",
     "resultsThrough": "3 Jul",
-    "tiesRemaining": 5,
+    "tiesRemaining": 4,
     "follow": {
       "team": "Spain",
       "next": "vs Austria — Thu 2 Jul, 21:00 (Madrid)."
@@ -587,12 +587,12 @@
               "flag": "🇵🇹",
               "name": "Portugal",
               "score": 2,
-              "role": "l"
+              "role": "w"
             },
             {
               "flag": "🇭🇷",
               "name": "Croatia",
-              "score": 2,
+              "score": 1,
               "role": "l"
             }
           ],
@@ -773,20 +773,20 @@
       [
         {
           "id": "r32-15",
-          "status": "scheduled",
-          "when": "Fri 3 Jul · 05:00",
+          "status": "done",
+          "when": "Fri 3 Jul · FT",
           "teams": [
             {
               "flag": "🇨🇭",
               "name": "Switzerland",
-              "score": null,
-              "role": null
+              "score": 2,
+              "role": "w"
             },
             {
               "flag": "🇩🇿",
               "name": "Algeria",
-              "score": null,
-              "role": null
+              "score": 0,
+              "role": "l"
             }
           ],
           "kickoff": "2026-07-03T03:00:00Z"
@@ -874,8 +874,10 @@
               "role": null
             },
             {
-              "tbd": true,
-              "feeder": "Por / Cro"
+              "flag": "🇵🇹",
+              "name": "Portugal",
+              "score": null,
+              "role": null
             }
           ]
         },
@@ -966,8 +968,10 @@
           "when": "Sun 5 Jul · Vancouver",
           "teams": [
             {
-              "tbd": true,
-              "feeder": "Sui / Dza"
+              "flag": "🇨🇭",
+              "name": "Switzerland",
+              "score": null,
+              "role": null
             },
             {
               "tbd": true,
