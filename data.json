@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T22:36:53.249Z",
+  "generatedAt": "2026-07-04T23:39:52.798Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -818,20 +818,20 @@
       [
         {
           "id": "r16-1",
-          "status": "live",
-          "when": "Sat 4 Jul · 23:00",
+          "status": "done",
+          "when": "Sat 4 Jul · FT",
           "teams": [
             {
               "flag": "🇵🇾",
               "name": "Paraguay",
               "score": 0,
-              "role": null
+              "role": "l"
             },
             {
               "flag": "🇫🇷",
               "name": "France",
-              "score": 0,
-              "role": null
+              "score": 1,
+              "role": "w"
             }
           ],
           "kickoff": "2026-07-04T21:00:00Z"
@@ -996,8 +996,10 @@
           "when": "Thu 9 Jul",
           "teams": [
             {
-              "tbd": true,
-              "feeder": "TBD"
+              "flag": "🇫🇷",
+              "name": "France",
+              "score": null,
+              "role": null
             },
             {
               "flag": "🇲🇦",
