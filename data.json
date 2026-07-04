@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T17:37:09.789Z",
+  "generatedAt": "2026-07-04T18:37:09.814Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -850,7 +850,7 @@
             {
               "flag": "🇲🇦",
               "name": "Morocco",
-              "score": 0,
+              "score": 1,
               "role": null
             }
           ],
