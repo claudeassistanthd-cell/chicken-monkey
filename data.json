@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-04T16:33:14.784Z",
+  "generatedAt": "2026-07-04T17:37:09.789Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -838,19 +838,19 @@
         },
         {
           "id": "r16-2",
-          "status": "scheduled",
+          "status": "live",
           "when": "Sat 4 Jul · 19:00",
           "teams": [
             {
               "flag": "🇨🇦",
               "name": "Canada",
-              "score": null,
+              "score": 0,
               "role": null
             },
             {
               "flag": "🇲🇦",
               "name": "Morocco",
-              "score": null,
+              "score": 0,
               "role": null
             }
           ],
