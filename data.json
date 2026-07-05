@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-05T19:56:49.040Z",
+  "generatedAt": "2026-07-05T20:57:21.566Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -904,19 +904,19 @@
       [
         {
           "id": "r16-5",
-          "status": "scheduled",
+          "status": "live",
           "when": "Sun 5 Jul · 22:00",
           "teams": [
             {
               "flag": "🇧🇷",
               "name": "Brazil",
-              "score": null,
+              "score": 0,
               "role": null
             },
             {
               "flag": "🇳🇴",
               "name": "Norway",
-              "score": null,
+              "score": 0,
               "role": null
             }
           ],
