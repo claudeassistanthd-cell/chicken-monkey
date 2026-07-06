@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T20:17:16.955Z",
+  "generatedAt": "2026-07-06T21:50:07.087Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -860,8 +860,8 @@
       [
         {
           "id": "r16-3",
-          "status": "live",
-          "when": "Mon 6 Jul · 21:00",
+          "status": "done",
+          "when": "Mon 6 Jul · FT",
           "route": "esp",
           "tagpin": {
             "text": "Spain’s route",
@@ -871,14 +871,14 @@
             {
               "flag": "🇪🇸",
               "name": "Spain",
-              "score": 0,
-              "role": null
+              "score": 1,
+              "role": "w"
             },
             {
               "flag": "🇵🇹",
               "name": "Portugal",
               "score": 0,
-              "role": null
+              "role": "l"
             }
           ],
           "kickoff": "2026-07-06T19:00:00Z"
@@ -1016,8 +1016,10 @@
           "when": "Fri 10 Jul",
           "teams": [
             {
-              "tbd": true,
-              "feeder": "TBD"
+              "flag": "🇪🇸",
+              "name": "Spain",
+              "score": null,
+              "role": null
             },
             {
               "tbd": true,
