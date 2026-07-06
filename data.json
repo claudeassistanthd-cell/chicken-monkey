@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-06T18:18:02.445Z",
+  "generatedAt": "2026-07-06T20:17:16.955Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -860,7 +860,7 @@
       [
         {
           "id": "r16-3",
-          "status": "scheduled",
+          "status": "live",
           "when": "Mon 6 Jul · 21:00",
           "route": "esp",
           "tagpin": {
@@ -871,13 +871,13 @@
             {
               "flag": "🇪🇸",
               "name": "Spain",
-              "score": null,
+              "score": 0,
               "role": null
             },
             {
               "flag": "🇵🇹",
               "name": "Portugal",
-              "score": null,
+              "score": 0,
               "role": null
             }
           ],
