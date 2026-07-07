@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T20:59:57.040Z",
+  "generatedAt": "2026-07-07T22:16:10.805Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -968,20 +968,20 @@
         },
         {
           "id": "r16-8",
-          "status": "live",
-          "when": "Tue 7 Jul · 22:00",
+          "status": "done",
+          "when": "Tue 7 Jul · FT",
           "teams": [
             {
               "flag": "🇨🇭",
               "name": "Switzerland",
               "score": 0,
-              "role": null
+              "role": "l"
             },
             {
               "flag": "🇨🇴",
               "name": "Colombia",
               "score": 0,
-              "role": null
+              "role": "l"
             }
           ],
           "kickoff": "2026-07-07T20:00:00Z"
