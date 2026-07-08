@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-08T03:45:48.418Z",
+  "generatedAt": "2026-07-08T06:16:50.358Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -975,7 +975,7 @@
               "flag": "🇨🇭",
               "name": "Switzerland",
               "score": 4,
-              "role": "l"
+              "role": "w"
             },
             {
               "flag": "🇨🇴",
@@ -985,7 +985,7 @@
             }
           ],
           "kickoff": "2026-07-07T20:00:00Z",
-          "pens": "✓ Colombia win 3–3 on pens"
+          "pens": "✓ Switzerland win 4–3 on pens"
         }
       ]
     ],
@@ -1060,8 +1060,10 @@
               "feeder": "TBD"
             },
             {
-              "tbd": true,
-              "feeder": "TBD"
+              "flag": "🇨🇭",
+              "name": "Switzerland",
+              "score": null,
+              "role": null
             }
           ]
         }
