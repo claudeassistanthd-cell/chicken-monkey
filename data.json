@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T20:13:38.304Z",
+  "generatedAt": "2026-07-11T21:07:43.526Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -1032,19 +1032,19 @@
       [
         {
           "id": "qf-3",
-          "status": "scheduled",
+          "status": "live",
           "when": "Sat 11 Jul · 23:00",
           "teams": [
             {
               "flag": "🇳🇴",
               "name": "Norway",
-              "score": null,
+              "score": 0,
               "role": null
             },
             {
               "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
               "name": "England",
-              "score": null,
+              "score": 0,
               "role": null
             }
           ],
