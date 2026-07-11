@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-11T21:07:43.526Z",
+  "generatedAt": "2026-07-11T22:03:37.776Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
@@ -1038,13 +1038,13 @@
             {
               "flag": "🇳🇴",
               "name": "Norway",
-              "score": 0,
+              "score": 1,
               "role": null
             },
             {
               "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
               "name": "England",
-              "score": 0,
+              "score": 1,
               "role": null
             }
           ],
