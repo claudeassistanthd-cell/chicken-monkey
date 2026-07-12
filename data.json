@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-07-11T23:02:24.001Z",
+  "generatedAt": "2026-07-12T00:03:51.478Z",
   "meta": {
     "groupsCount": 12,
     "knockoutTeams": 32,
     "last32Decided": "14 / 16",
     "finalDateShort": "Jul 19",
-    "resultsThrough": "10 Jul",
+    "resultsThrough": "11 Jul",
     "tiesRemaining": 2,
     "follow": {
       "team": "Spain",
@@ -1032,20 +1032,20 @@
       [
         {
           "id": "qf-3",
-          "status": "live",
-          "when": "Sat 11 Jul · 23:00",
+          "status": "done",
+          "when": "Sat 11 Jul · FT",
           "teams": [
             {
               "flag": "🇳🇴",
               "name": "Norway",
-              "score": 2,
-              "role": null
+              "score": 1,
+              "role": "l"
             },
             {
               "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
               "name": "England",
-              "score": 1,
-              "role": null
+              "score": 2,
+              "role": "w"
             }
           ],
           "kickoff": "2026-07-11T21:00:00Z"
@@ -1094,8 +1094,10 @@
           "when": "Wed 15 Jul",
           "teams": [
             {
-              "tbd": true,
-              "feeder": "TBD"
+              "flag": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+              "name": "England",
+              "score": null,
+              "role": null
             },
             {
               "tbd": true,
