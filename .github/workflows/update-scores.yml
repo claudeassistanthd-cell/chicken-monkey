@@ -1,10 +1,6 @@
 name: Update Scores
 
 on:
-  schedule:
-    # Every 5 minutes (GitHub's minimum). ESPN cross-check runs in parallel
-    # so results arrive on-site within ~5 min of a match ending.
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
