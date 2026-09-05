@@ -914,6 +914,280 @@ class Enemy {
   }
 }
 
+/* =============================== Boss =============================== */
+/* The Head Suit. Armored: only every 5th hit staggers him, but a full
+   tornado kick always knocks him flat - the meter is the power tool. */
+class Boss {
+  constructor(x, y){
+    const def = CONFIG.BOSS;
+    this.def = def;
+    this.w = def.w; this.h = def.h; this.duckH = def.h;
+    this.hp = def.hp; this.maxHp = def.hp;
+    this.x = x; this.y = y;
+    this.vx = 0; this.vy = 0;
+    this.facing = -1; this.grounded = false; this.coyote = 0;
+    this.ducking = false;
+    this.state = 'ENTER'; this.stateTick = 0;
+    this.phase = 1;
+    this.invuln = 0; this.flash = 0;
+    this.hitsTaken = 0;
+    this.cooldown = 90;
+    this.rot = 0; this.alpha = 1;
+    this.summoned75 = false;
+    this.shockwaves = [];
+    this.dead = false;
+    this.runTick = 0;
+    this.chargeDir = 0;
+  }
+  get hurtbox(){ return bodyBox(this); }
+  setState(s){ this.state = s; this.stateTick = 0; }
+  speedMul(){ return this.phase === 2 ? 1.4 : 1; }
+  windupMul(){ return this.phase === 2 ? 0.7 : 1; }
+  takeHit(def, attacker){
+    if (this.state === 'DYING' || this.state === 'PHASE_CHANGE' || this.invuln > 0) return;
+    const isTornado = def === ATTACKS.tornado;
+    const dmg = isTornado ? Math.round(def.dmg / 2) : def.dmg;
+    this.hp -= dmg;
+    this.flash = 4;
+    this.hitsTaken++;
+    if (this.hp <= 0){
+      this.hp = 0;
+      this.setState('DYING');
+      this.shockwaves = [];
+      FX.stop(45);                                  // slow-mo finish
+      FX.shake(10);
+      Audio.sfx('knockdown');
+      return;
+    }
+    if (this.phase === 1 && this.hp <= this.maxHp / 2){
+      this.setState('PHASE_CHANGE');
+      this.phase = 2;
+      this.invuln = 90;
+      this.vx = 0;
+      FX.shake(8);
+      FX.burst(this.x, this.y - this.h + 10, '#5a5aff', 10, 3);   // sunglasses shatter away
+      FX.text(this.x, this.y - this.h - 20, 'NOW YOU HAVE MY ATTENTION', '#ff3344');
+      Audio.sfx('bossSting');
+      Game.summonMinions(2);
+      return;
+    }
+    if (isTornado){
+      this.setState('KNOCKDOWN');
+      const dir = attacker.x < this.x ? 1 : -1;
+      this.vx = dir * 4; this.vy = -5;
+      this.grounded = false;
+      Audio.sfx('knockdown');
+    } else if (this.hitsTaken % 5 === 0){
+      this.setState('STAGGER');
+      this.vx = (attacker.x < this.x ? 1 : -1) * 1.5;
+      FX.text(this.x, this.y - this.h - 16, 'STAGGERED!', '#ffd94f');
+    }
+  }
+  bodyOverlapsPlayer(player){
+    return player.invuln <= 0 && player.hp > 0 && Utils.aabb(this.hurtbox, player.hurtbox);
+  }
+  pickAttack(player){
+    const dist = Math.abs(player.x - this.x);
+    if (this.phase === 2){
+      const r = Utils.rand();
+      if (dist > 220 && r < 0.45){ this.setState('CHARGE_WINDUP'); return; }
+      if (r < 0.3){ this.setState('SLAM_WINDUP'); return; }
+      if (r < 0.65){ this.setState('RUSH_WINDUP'); return; }
+      if (dist < 110){ this.setState('HAY_WINDUP'); return; }
+      this.setState('RUSH_WINDUP');
+      return;
+    }
+    if (dist > 220 && Utils.rand() < 0.55){ this.setState('CHARGE_WINDUP'); return; }
+    if (dist < 110){ this.setState('HAY_WINDUP'); return; }
+    this.setState('CHARGE_WINDUP');
+  }
+  update(level, player){
+    this.stateTick++;
+    if (this.invuln > 0 && this.state !== 'PHASE_CHANGE') this.invuln--;
+    if (this.flash > 0) this.flash--;
+    const dirTo = player.x > this.x ? 1 : -1;
+    const arenaMin = Camera.minX + 40;
+    const arenaMax = Camera.maxX + CONFIG.VIEW_W - 40;
+    switch (this.state){
+      case 'ENTER':
+        this.facing = dirTo;
+        this.vx = this.x > player.x + 220 ? -1.2 : 0;
+        moveAndCollide(this, level);
+        if (this.stateTick > 90) this.setState('IDLE');
+        break;
+      case 'IDLE': {
+        this.facing = dirTo;
+        if (this.cooldown > 0) this.cooldown--;
+        const dist = Math.abs(player.x - this.x);
+        if (dist > 90){ this.vx = dirTo * 1.2 * this.speedMul(); this.runTick++; }
+        else if (dist < 60){ this.vx = -dirTo * 0.8; }
+        else this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.cooldown <= 0 && player.hp > 0){ this.pickAttack(player); }
+        break;
+      }
+      case 'HAY_WINDUP':
+        this.facing = dirTo;
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= Math.round(40 * this.windupMul())){
+          this.setState('HAY_HIT');
+          Audio.sfx('swingHeavy');
+        }
+        break;
+      case 'HAY_HIT': {
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 2 && this.stateTick <= 8){
+          const box = attackBox(this, { dx: 18, dy: -66, w: 54, h: 34 });
+          if (player.invuln <= 0 && player.hp > 0 && Utils.aabb(box, player.hurtbox)){
+            player.takeHit(this.def.hay, this.facing * 7, -4);
+            FX.shake(6);
+          }
+        }
+        if (this.stateTick >= 38){ this.cooldown = Math.round(70 * this.windupMul()); this.setState('IDLE'); }
+        break;
+      }
+      case 'CHARGE_WINDUP':
+        this.facing = dirTo;
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick === 10 || this.stateTick === 30){ FX.shake(3); Audio.sfx('land'); }   // stomp stomp
+        if (this.stateTick >= Math.round(50 * this.windupMul())){
+          this.setState('CHARGE');
+          this.chargeDir = this.facing;
+          Audio.sfx('waveStart');
+        }
+        break;
+      case 'CHARGE':
+        this.vx = this.chargeDir * 7;
+        this.runTick += 2;
+        moveAndCollide(this, level);
+        if (this.bodyOverlapsPlayer(player)){
+          player.takeHit(this.def.charge, this.chargeDir * 7, -5);
+          FX.shake(6);
+        }
+        if ((this.chargeDir < 0 && this.x <= arenaMin + 20) || (this.chargeDir > 0 && this.x >= arenaMax - 20) || this.stateTick > 80){
+          this.vx = 0;
+          this.setState('WALL_STAGGER');
+          FX.shake(8);
+          FX.burst(this.x + this.chargeDir * 20, this.y - 40, '#8888aa', 10, 3);
+          Audio.sfx('knockdown');
+        }
+        break;
+      case 'WALL_STAGGER':   // the big phase-1 punish window
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 60){ this.cooldown = 50; this.setState('IDLE'); }
+        break;
+      case 'RUSH_WINDUP':
+        this.facing = dirTo;
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 20){ this.setState('RUSH'); this.rushHits = 0; }
+        break;
+      case 'RUSH': {
+        // three advancing jabs
+        const step = this.stateTick % 14;
+        if (step === 1) Audio.sfx('swing');
+        this.vx = this.facing * 2.6;
+        moveAndCollide(this, level);
+        if (step >= 4 && step <= 8){
+          const box = attackBox(this, { dx: 16, dy: -60, w: 40, h: 22 });
+          if (player.invuln <= 0 && player.hp > 0 && Utils.aabb(box, player.hurtbox)){
+            player.takeHit(this.def.rushJab, this.facing * 4, -2);
+          }
+        }
+        if (this.stateTick >= 42){ this.cooldown = 55; this.setState('IDLE'); }
+        break;
+      }
+      case 'SLAM_WINDUP':
+        this.facing = dirTo;
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 24){
+          this.setState('SLAM_AIR');
+          const dx = Utils.clamp(player.x, arenaMin, arenaMax) - this.x;
+          this.vx = dx / 34;
+          this.vy = -13;
+          this.grounded = false;
+          Audio.sfx('jump');
+        }
+        break;
+      case 'SLAM_AIR':
+        moveAndCollide(this, level);
+        if (this.grounded && this.stateTick > 5){
+          this.setState('SLAM_LAND');
+          this.vx = 0;
+          FX.shake(10);
+          FX.burst(this.x, this.y, '#8888aa', 14, 4);
+          Audio.sfx('hitHeavy');
+          this.shockwaves.push({ x: this.x - 30, dir: -1, t: 0 });
+          this.shockwaves.push({ x: this.x + 30, dir: 1, t: 0 });
+          if (this.bodyOverlapsPlayer(player)){
+            player.takeHit(this.def.slam, (player.x < this.x ? -1 : 1) * 6, -5);
+          }
+        }
+        break;
+      case 'SLAM_LAND':
+        moveAndCollide(this, level);
+        if (this.stateTick >= 30){ this.cooldown = 60; this.setState('IDLE'); }
+        break;
+      case 'STAGGER':
+        this.vx *= 0.85;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 20){ this.setState('IDLE'); }
+        break;
+      case 'KNOCKDOWN':
+        this.rot = Math.min(Math.PI / 2, this.rot + 0.12);
+        moveAndCollide(this, level);
+        this.vx *= this.grounded ? 0.8 : 1;
+        if (this.stateTick >= 70){
+          this.rot = 0;
+          this.invuln = 30;
+          this.cooldown = 30;
+          this.setState('IDLE');
+        }
+        break;
+      case 'PHASE_CHANGE':
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick === 20) FX.shake(6);
+        if (this.stateTick >= 90){ this.invuln = 0; this.cooldown = 40; this.setState('IDLE'); }
+        break;
+      case 'DYING':
+        this.rot = Math.min(Math.PI / 2, this.stateTick * 0.05);
+        if (this.stateTick > 40) this.alpha = Math.max(0, 1 - (this.stateTick - 40) / 60);
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick === 30) FX.burst(this.x, this.y - 30, '#5a5a80', 14, 3);
+        if (this.stateTick >= 110 && !this.dead){
+          this.dead = true;
+          Game.onBossDefeated();
+        }
+        break;
+    }
+    // second summon late in phase 2
+    if (this.phase === 2 && !this.summoned75 && this.hp <= this.maxHp / 4 && this.state !== 'DYING'){
+      if (Game.aliveEnemies() === 0){
+        this.summoned75 = true;
+        Game.summonMinions(1);
+      }
+    }
+    // shockwaves
+    for (let i = this.shockwaves.length - 1; i >= 0; i--){
+      const sw = this.shockwaves[i];
+      sw.t++;
+      sw.x += sw.dir * 6;
+      const box = { x: sw.x - 14, y: Game.level.floorY - 18, w: 28, h: 18 };
+      if (player.invuln <= 0 && player.hp > 0 && player.grounded && Utils.aabb(box, player.hurtbox)){
+        player.takeHit(this.def.slam, sw.dir * 4, -3);
+      }
+      if (sw.t > 50) this.shockwaves.splice(i, 1);
+    }
+  }
+}
+
 /* ============================== Pickup ============================== */
 class Pickup {
   constructor(kind, x, y){
@@ -1077,7 +1351,7 @@ const LEVELS = [
     ],
     hazards: [ { triggerX: 700 }, { triggerX: 1600 }, { triggerX: 2430 } ],
     gaps: [],
-    boss: null,
+    boss: { arenaX: 3020, lockX: 2940 },
   },
 ];
 
@@ -1766,6 +2040,77 @@ function drawSuit(ctx, e){
     ctx.textAlign = 'left';
   }
 }
+function drawBoss(ctx, b){
+  const c = flashColor(b);
+  const winding = b.state.endsWith('_WINDUP');
+  ctx.save();
+  ctx.globalAlpha = b.alpha;
+  ctx.translate(Math.round(b.x), Math.round(b.y - b.h / 2));
+  if (b.state === 'KNOCKDOWN' || b.state === 'DYING') ctx.rotate(b.rot * (b.facing > 0 ? -1 : 1));
+  const fx = b.facing, half = b.h / 2;
+  if (winding){
+    const pulse = (b.stateTick % 8) < 4;
+    ctx.fillStyle = pulse ? 'rgba(255,60,60,0.4)' : 'rgba(255,255,255,0.25)';
+    ctx.fillRect(-26, -half - 8, 52, b.h + 14);
+    ctx.rotate(-fx * 0.1);
+  }
+  if (b.state === 'PHASE_CHANGE'){
+    const pulse = (b.stateTick % 6) < 3;
+    ctx.fillStyle = pulse ? 'rgba(255,30,50,0.5)' : 'rgba(255,255,255,0.2)';
+    ctx.fillRect(-28, -half - 10, 56, b.h + 16);
+  }
+  // legs
+  ctx.fillStyle = c('#101018');
+  const stride = (Math.abs(b.vx) > 0.4) ? Math.round(Math.sin(b.runTick * 0.3) * 7) : 0;
+  ctx.fillRect(-13 + stride, half - 34, 11, 34);
+  ctx.fillRect(3 - stride, half - 34, 11, 34);
+  // big suit jacket
+  ctx.fillStyle = c('#1a1a28');
+  ctx.fillRect(-17, -half + 26, 34, 46);
+  // shirt + red tie
+  ctx.fillStyle = c('#d8d8e8');
+  ctx.fillRect(-3, -half + 28, 7, 14);
+  ctx.fillStyle = c('#c01030');
+  ctx.fillRect(-2, -half + 30, 5, 20);
+  // arms
+  ctx.fillStyle = c('#1a1a28');
+  if (b.state === 'HAY_HIT' || b.state === 'RUSH' || b.state === 'CHARGE'){
+    ctx.fillRect(fx > 0 ? 12 : -46, -half + 32, 34, 9);
+    ctx.fillRect(fx > 0 ? -19 : 11, -half + 38, 8, 18);
+  } else if (winding){
+    ctx.fillRect(fx > 0 ? -24 : 14, -half + 28, 10, 12);   // cocked huge fist
+    ctx.fillRect(fx > 0 ? 11 : -19, -half + 38, 8, 18);
+  } else {
+    ctx.fillRect(-20, -half + 32, 8, 24);
+    ctx.fillRect(12, -half + 32, 8, 24);
+  }
+  // head
+  ctx.fillStyle = c('#0b0b12');
+  ctx.fillRect(-13, -half, 26, 26);
+  if (b.phase === 1){
+    ctx.fillStyle = c('#2a2a3a');                          // sunglasses
+    ctx.fillRect(fx > 0 ? -5 : -13, -half + 9, 18, 6);
+    ctx.fillStyle = 'rgba(125,253,254,0.6)';
+    ctx.fillRect(fx > 0 ? 6 : -10, -half + 10, 4, 2);      // glint
+  } else {
+    ctx.fillStyle = '#ff2233';                             // burning eyes
+    const ex = fx > 0 ? 0 : -10;
+    ctx.fillRect(ex, -half + 10, 10, 4);
+    ctx.globalAlpha = b.alpha * (0.4 + 0.3 * Math.sin(Game.tick * 0.3));
+    ctx.fillRect(ex - 2, -half + 8, 14, 8);
+    ctx.globalAlpha = b.alpha;
+  }
+  ctx.restore();
+  // shockwaves
+  ctx.fillStyle = '#a0a0c8';
+  for (const sw of b.shockwaves){
+    const hgt = 14 + Math.sin(sw.t * 0.5) * 4;
+    ctx.fillRect(Math.round(sw.x - 12), Game.level.floorY - hgt, 24, hgt);
+    ctx.fillStyle = '#d8d8f0';
+    ctx.fillRect(Math.round(sw.x - 5), Game.level.floorY - hgt - 5, 10, 6);
+    ctx.fillStyle = '#a0a0c8';
+  }
+}
 
 /* ============================== Game ================================ */
 const Game = {
@@ -1790,7 +2135,7 @@ const Game = {
     p.x = 100; p.y = Game.level.floorY; p.vx = 0; p.vy = 0; p.facing = 1;
     p.hp = CONFIG.PLAYER.hp;
     p.hitstun = 0; p.invuln = 0; p.attack = null;
-    Game.enemies = []; Game.boss = null;
+    Game.enemies = []; Game.boss = null; Game.bossSpawned = false;
     Game.pickups = Game.level.pickups.map(d => new Pickup(d.kind, d.x, d.y));
     Game.hazardActive = false; Game.hazard = null; Game.hazardIdx = 0;
     Game.waveIndex = 0; Game.activeWave = null; Game.goArrow = 0; Game.strayIdx = 0;
@@ -1859,6 +2204,43 @@ const Game = {
   testHazard(){ // verification hook: start a hazard with a short warning
     Game.hazard = { phase: 'warn', ticks: 55 };
     Game.hazardActive = true;
+  },
+  testBoss(){ // verification hook: jump straight to the boss arena
+    Game.testLevel(2);
+    Game.setState('PLAYING');
+    Game.waveIndex = Game.level.waves.length;      // waves already "cleared"
+    Game.strayIdx = Game.level.strays.length;
+    Game.hazardIdx = Game.level.hazards.length;
+    Game.enemies = [];
+    const p = Game.player;
+    p.x = Game.level.boss.arenaX + 10;
+    p.y = Game.level.floorY;
+    Camera.x = Utils.clamp(p.x - CONFIG.VIEW_W / 2, Camera.minX, Camera.maxX);
+    Game.updateBoss();
+  },
+  summonMinions(n){
+    for (let i = 0; i < n; i++) Game.spawnEnemy('suit', i % 2 === 0 ? 'left' : 'right');
+  },
+  updateBoss(){
+    const lvl = Game.level, p = Game.player;
+    if (!Game.bossSpawned && lvl.boss && p.x >= lvl.boss.arenaX){
+      Game.bossSpawned = true;
+      Camera.minX = lvl.boss.lockX;
+      Camera.maxX = lvl.boss.lockX;
+      const engine = lvl.solids[lvl.solids.length - 1];
+      Game.boss = new Boss(lvl.boss.lockX + CONFIG.VIEW_W - 200, engine.y);
+      Audio.music('boss');
+      Audio.sfx('bossSting');
+      FX.shake(6);
+      FX.text(Game.boss.x, engine.y - 120, 'THE HEAD SUIT', '#ff3344');
+    }
+    if (Game.boss && !Game.boss.dead) Game.boss.update(lvl, p);
+  },
+  onBossDefeated(){
+    Game.addScore(CONFIG.BOSS.score);
+    Audio.stopMusic();
+    Audio.sfx('victory');
+    Game.setState('VICTORY');
   },
   updateHazard(){
     const lvl = Game.level;
@@ -1989,6 +2371,8 @@ const Game = {
         if (Game.state !== 'PLAYING') break; // player died mid-update
         Game.updateHazard();
         if (Game.state !== 'PLAYING') break;
+        Game.updateBoss();
+        if (Game.state !== 'PLAYING') break;
         Game.updateWaves();
         if (Game.state !== 'PLAYING') break;
         // wheel sparks sell the train's speed
@@ -2060,6 +2444,7 @@ const Game = {
       ctx.fillRect(hx + 36, sy + 18, 18, 20);
     }
     for (const e of Game.enemies) drawSuit(ctx, e);
+    if (Game.boss && !Game.boss.dead) drawBoss(ctx, Game.boss);
     if (Game.state === 'LIFE_LOST'){
       // Jimmy dramatically down
       ctx.save();
@@ -2197,6 +2582,21 @@ const Game = {
     ctx.textAlign = 'right';
     ctx.fillText(String(Game.score).padStart(6, '0'), W - 20, 34);
     ctx.textAlign = 'left';
+    // boss health bar
+    if (Game.boss && !Game.boss.dead && Game.boss.state !== 'DYING'){
+      const b = Game.boss;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(W / 2 - 210, H - 58, 420, 44);
+      ctx.fillStyle = '#ff3344';
+      ctx.font = 'bold 14px "Courier New", monospace';
+      ctx.fillText('THE HEAD SUIT', W / 2, H - 41);
+      ctx.fillStyle = '#3a0a14';
+      ctx.fillRect(W / 2 - 196, H - 34, 392, 12);
+      ctx.fillStyle = b.phase === 2 ? '#ff2233' : '#c01030';
+      ctx.fillRect(W / 2 - 196, H - 34, Math.round(392 * b.hp / b.maxHp), 12);
+      ctx.textAlign = 'left';
+    }
   },
   drawTitle(ctx, W, H){
     ctx.fillStyle = '#140a26';
