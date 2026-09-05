@@ -650,12 +650,62 @@ class Enemy {
   }
 }
 
+/* ============================== Pickup ============================== */
+class Pickup {
+  constructor(kind, x, y){
+    this.kind = kind; this.x = x; this.y = y;
+    this.taken = false; this.bobPhase = Utils.rand() * 6.28;
+  }
+  update(player){
+    if (this.taken) return;
+    const box = { x: this.x - 12, y: this.y - 26, w: 24, h: 26 };
+    if (Utils.aabb(box, player.hurtbox)){
+      this.taken = true;
+      const def = CONFIG.PICKUPS[this.kind];
+      player.hp = Math.min(CONFIG.PLAYER.hp, player.hp + def.hp);
+      FX.text(this.x, this.y - 34, '+' + def.hp + ' HP', '#3dfc7e');
+      if (def.meter) player.gainMeter(def.meter);
+      FX.burst(this.x, this.y - 14, this.kind === 'kebab' ? '#ffb347' : '#7dfdfe', 8, 2);
+      Audio.sfx('pickup');
+    }
+  }
+  draw(ctx){
+    if (this.taken) return;
+    const bob = Math.sin(Game.tick * 0.06 + this.bobPhase) * 3;
+    const x = Math.round(this.x), y = Math.round(this.y + bob);
+    if (this.kind === 'kebab'){
+      ctx.fillStyle = '#b08040';                       // stick
+      ctx.fillRect(x - 1, y - 26, 3, 26);
+      ctx.fillStyle = '#c8543c'; ctx.fillRect(x - 6, y - 24, 12, 5);  // meat
+      ctx.fillStyle = '#7fc84a'; ctx.fillRect(x - 5, y - 18, 10, 4);  // salad
+      ctx.fillStyle = '#c8543c'; ctx.fillRect(x - 6, y - 13, 12, 5);
+      ctx.fillStyle = '#f0d060'; ctx.fillRect(x - 5, y - 7, 10, 4);   // pineapple
+    } else {
+      ctx.fillStyle = '#0a5a6a';                       // can
+      ctx.fillRect(x - 7, y - 24, 14, 24);
+      ctx.fillStyle = '#7dfdfe';
+      ctx.fillRect(x - 7, y - 24, 14, 4);
+      ctx.fillStyle = '#ffd94f';                       // lightning bolt
+      ctx.fillRect(x - 1, y - 18, 4, 6);
+      ctx.fillRect(x - 3, y - 12, 4, 6);
+    }
+    // glow shimmer
+    ctx.globalAlpha = 0.25 + 0.15 * Math.sin(Game.tick * 0.12);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x - 10, y - 28, 20, 2);
+    ctx.globalAlpha = 1;
+  }
+}
+
 /* ============================== LEVELS ============================== */
-/* Greybox level 1 for the physics milestone; real data lands with art. */
 const LEVELS = [
   {
     name: 'BACK ALLEYS', music: 'alley', width: 3400, floorY: 470,
-    palette: { sky0: '#1a0b33', sky1: '#3d1263', ground: '#241a38', plat: '#4a3a68' },
+    palette: {
+      sky0: '#1a0b33', sky1: '#52186b', ground: '#241a38', groundTop: '#39284f',
+      wall: '#221534', wallDark: '#190f28', far: '#120a22', mid: '#1c1132',
+      neon: ['#ff4fd8', '#7dfdfe', '#ffd94f', '#9dff57'],
+    },
     solids: [ { x: -40, y: 470, w: 3480, h: 90 } ],
     platforms: [
       { x: 620,  y: 402, w: 116, kind: 'dumpster' },
@@ -664,7 +714,21 @@ const LEVELS = [
       { x: 2100, y: 402, w: 116, kind: 'dumpster' },
       { x: 2620, y: 414, w: 74,  kind: 'crate' },
     ],
-    props: [], pickups: [], waves: [], strays: [], hazards: [], gaps: [],
+    pickups: [
+      { x: 1250, y: 470, kind: 'kebab' },
+      { x: 2400, y: 470, kind: 'drink' },
+      { x: 3080, y: 470, kind: 'kebab' },
+    ],
+    waves: [
+      { triggerX: 500,  enemies: [ { type: 'suit', from: 'right', delay: 0 }, { type: 'suit', from: 'right', delay: 50 } ] },
+      { triggerX: 1520, enemies: [ { type: 'suit', from: 'right', delay: 0 }, { type: 'suit', from: 'left', delay: 60 }, { type: 'suit', from: 'drop', delay: 130 } ] },
+      { triggerX: 2650, enemies: [ { type: 'suit', from: 'right', delay: 0 }, { type: 'suit', from: 'right', delay: 60 }, { type: 'suit', from: 'left', delay: 120 } ] },
+    ],
+    strays: [
+      { triggerX: 1080, type: 'suit', from: 'right' },
+      { triggerX: 2250, type: 'suit', from: 'left' },
+    ],
+    hazards: [], gaps: [],
     boss: null,
   },
 ];
@@ -684,6 +748,255 @@ const Camera = {
   get ix(){ return Math.round(Camera.x); },
   get iy(){ return Math.round(Camera.y); },
 };
+
+/* ================================ BG ================================ */
+/* Parallax layers are baked once per level to offscreen canvases; the
+   frame loop only pays for drawImage. shadowBlur is allowed ONLY here. */
+const BG = {
+  layers: [], stars: [], clouds: [],
+  make(w, h){ const c = document.createElement('canvas'); c.width = Math.ceil(w); c.height = h; return c; },
+  dispose(){ BG.layers = []; },
+  bake(level){
+    BG.dispose();
+    const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H, pal = level.palette;
+    const kind = level.bg || 'alley';
+    BG.stars = Array.from({ length: 70 }, () => ({
+      x: Utils.rand() * W, y: Utils.rand() * 240, phase: Utils.rand() * 6.28,
+      size: Utils.rand() < 0.2 ? 2 : 1,
+    }));
+    BG.clouds = Array.from({ length: 4 }, (_, i) => ({
+      x: Utils.rand() * W, y: 30 + i * 45 + Utils.rand() * 20,
+      w: 90 + Utils.rand() * 120, speed: 0.05 + Utils.rand() * 0.1,
+    }));
+    if (kind === 'alley') BG.bakeAlley(level, W, H, pal);
+    else if (kind === 'rooftop') BG.bakeRooftop(level, W, H, pal);
+    else if (kind === 'train') BG.bakeTrain(level, W, H, pal);
+  },
+  bakeAlley(level, W, H, pal){
+    // far skyline (0.15)
+    {
+      const f = 0.15, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
+      // moon
+      g.save();
+      g.shadowColor = '#e8e8ff'; g.shadowBlur = 30;
+      g.fillStyle = '#e8e8f8';
+      g.fillRect(c.width - 260, 60, 34, 34);
+      g.restore();
+      g.fillStyle = '#c8c8dd';
+      g.fillRect(c.width - 252, 68, 6, 6);
+      g.fillRect(c.width - 240, 80, 8, 8);
+      let x = 0;
+      while (x < c.width){
+        const bw = 60 + Utils.rand() * 90, bh = 120 + Utils.rand() * 150;
+        g.fillStyle = pal.far;
+        g.fillRect(x, 470 - bh, bw, bh);
+        g.fillStyle = 'rgba(255,217,79,0.35)';
+        for (let wx = x + 6; wx < x + bw - 8; wx += 14)
+          for (let wy = 470 - bh + 10; wy < 450; wy += 22)
+            if (Utils.rand() < 0.18) g.fillRect(wx, wy, 4, 6);
+        x += bw + 4 + Utils.rand() * 20;
+      }
+      BG.layers.push({ canvas: c, factor: f, y: 0 });
+    }
+    // mid buildings + neon (0.4)
+    {
+      const f = 0.4, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
+      let x = 0, signI = 0;
+      while (x < c.width){
+        const bw = 130 + Utils.rand() * 110, bh = 210 + Utils.rand() * 130;
+        g.fillStyle = pal.mid;
+        g.fillRect(x, 470 - bh, bw, bh);
+        g.fillStyle = 'rgba(10,6,20,0.6)';                 // roof lip
+        g.fillRect(x, 470 - bh, bw, 6);
+        g.fillStyle = 'rgba(125,253,254,0.12)';
+        for (let wx = x + 8; wx < x + bw - 12; wx += 18)
+          for (let wy = 470 - bh + 14; wy < 440; wy += 26)
+            if (Utils.rand() < 0.3) g.fillRect(wx, wy, 8, 10);
+        // neon sign on some buildings
+        if (Utils.rand() < 0.55 && bh > 230){
+          const neon = pal.neon[signI++ % pal.neon.length];
+          const sx = x + 12 + Utils.rand() * (bw - 50), sy = 470 - bh + 30;
+          g.save();
+          g.shadowColor = neon; g.shadowBlur = 16;
+          g.fillStyle = neon;
+          if (Utils.rand() < 0.5){                          // vertical sign
+            g.fillRect(sx, sy, 14, 70);
+            g.fillStyle = '#0b0716';
+            for (let i = 0; i < 4; i++) g.fillRect(sx + 3, sy + 8 + i * 16, 8, 8);
+          } else {                                          // horizontal sign
+            g.fillRect(sx, sy, 54, 18);
+            g.fillStyle = '#0b0716';
+            for (let i = 0; i < 4; i++) g.fillRect(sx + 5 + i * 12, sy + 5, 7, 8);
+          }
+          g.restore();
+        }
+        // fire escape zigzag
+        if (Utils.rand() < 0.4){
+          g.strokeStyle = 'rgba(8,8,16,0.9)'; g.lineWidth = 3;
+          g.beginPath();
+          let fy = 470 - bh + 40;
+          while (fy < 430){ g.moveTo(x + 10, fy); g.lineTo(x + bw * 0.5, fy + 24); fy += 48; }
+          g.stroke();
+        }
+        x += bw + 8 + Utils.rand() * 30;
+      }
+      BG.layers.push({ canvas: c, factor: f, y: 0 });
+    }
+    // near alley wall (0.75)
+    {
+      const f = 0.75, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
+      g.fillStyle = pal.wall;
+      g.fillRect(0, 292, c.width, 178);
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(0, 292, c.width, 5);                     // wall cap
+      // brick courses
+      g.fillStyle = 'rgba(0,0,0,0.18)';
+      for (let by = 306; by < 470; by += 16) g.fillRect(0, by, c.width, 2);
+      for (let bx = 0; bx < c.width; bx += 34)
+        for (let by = 297; by < 470; by += 32)
+          g.fillRect(bx + ((by / 32 | 0) % 2) * 17, by, 2, 16);
+      // wires sagging along the wall top
+      g.strokeStyle = 'rgba(5,5,12,0.8)'; g.lineWidth = 2;
+      for (let wx = 0; wx < c.width; wx += 320){
+        g.beginPath();
+        g.moveTo(wx, 296);
+        g.quadraticCurveTo(wx + 160, 336, wx + 320, 300);
+        g.stroke();
+      }
+      // doors, pipes, graffiti, lamps
+      for (let dx = 140; dx < c.width; dx += 380 + Utils.rand() * 160){
+        const roll = Utils.rand();
+        if (roll < 0.35){                                   // steel door
+          g.fillStyle = pal.wallDark;
+          g.fillRect(dx, 470 - 86, 52, 86);
+          g.fillStyle = 'rgba(125,253,254,0.15)';
+          g.fillRect(dx + 40, 470 - 50, 5, 5);
+        } else if (roll < 0.6){                             // drain pipe
+          g.fillStyle = '#141022';
+          g.fillRect(dx, 297, 8, 173);
+          g.fillRect(dx - 6, 340, 20, 8);
+        } else {                                            // graffiti tag
+          const neon = pal.neon[(dx / 100 | 0) % pal.neon.length];
+          g.fillStyle = neon; g.globalAlpha = 0.5;
+          g.fillRect(dx, 380, 26, 12);
+          g.fillRect(dx + 20, 368, 18, 12);
+          g.fillRect(dx + 8, 394, 34, 10);
+          g.globalAlpha = 1;
+        }
+      }
+      // wall lamps with glow pools
+      for (let lx = 300; lx < c.width; lx += 640){
+        g.save();
+        g.shadowColor = '#ffd94f'; g.shadowBlur = 24;
+        g.fillStyle = '#ffd94f';
+        g.fillRect(lx, 318, 12, 8);
+        g.restore();
+        const pool = g.createLinearGradient(0, 326, 0, 470);
+        pool.addColorStop(0, 'rgba(255,217,79,0.18)');
+        pool.addColorStop(1, 'rgba(255,217,79,0)');
+        g.fillStyle = pool;
+        g.fillRect(lx - 40, 326, 92, 144);
+      }
+      BG.layers.push({ canvas: c, factor: f, y: 0 });
+    }
+  },
+  bakeRooftop(level, W, H, pal){ /* level 2 milestone */ },
+  bakeTrain(level, W, H, pal){ /* level 3 milestone */ },
+  drawSky(ctx, level){
+    const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H, pal = level.palette;
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, pal.sky0); grad.addColorStop(1, pal.sky1);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffffff';
+    for (const s of BG.stars){
+      ctx.globalAlpha = 0.35 + 0.4 * Math.abs(Math.sin(Game.tick * 0.02 + s.phase));
+      ctx.fillRect(Math.round(s.x), Math.round(s.y), s.size, s.size);
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(200,180,255,0.08)';
+    for (const cl of BG.clouds){
+      const cx = ((cl.x + Game.tick * cl.speed) % (W + cl.w)) - cl.w;
+      ctx.fillRect(Math.round(cx), cl.y, cl.w, 16);
+      ctx.fillRect(Math.round(cx + cl.w * 0.2), cl.y - 8, cl.w * 0.5, 10);
+    }
+  },
+  draw(ctx, camX){
+    for (const l of BG.layers){
+      const off = Math.round(-camX * l.factor + FX.shakeX * l.factor);
+      ctx.drawImage(l.canvas, off, l.y + Math.round(FX.shakeY * l.factor));
+    }
+  },
+};
+
+/* Platform + ground art */
+function drawPlatform(ctx, p, level){
+  const bottom = level.floorY !== undefined ? level.floorY : 470;
+  const h = bottom - p.y;
+  if (p.kind === 'dumpster'){
+    ctx.fillStyle = '#0f2e24';
+    ctx.fillRect(p.x - 3, p.y, p.w + 6, 8);              // lid
+    ctx.fillStyle = '#1d4436';
+    ctx.fillRect(p.x, p.y + 8, p.w, h - 16);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(p.x + 8, p.y + 16, p.w - 16, 4);
+    ctx.fillRect(p.x + 8, p.y + 30, p.w - 16, 4);
+    ctx.fillStyle = '#08080e';
+    ctx.fillRect(p.x + 8, bottom - 8, 12, 8);            // wheels
+    ctx.fillRect(p.x + p.w - 20, bottom - 8, 12, 8);
+  } else if (p.kind === 'crate'){
+    ctx.fillStyle = '#6b4a2a';
+    ctx.fillRect(p.x, p.y, p.w, h);
+    ctx.strokeStyle = 'rgba(30,18,8,0.8)'; ctx.lineWidth = 3;
+    ctx.strokeRect(p.x + 2, p.y + 2, p.w - 4, h - 4);
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.w, p.y + h);
+    ctx.moveTo(p.x + p.w, p.y); ctx.lineTo(p.x, p.y + h);
+    ctx.stroke();
+  } else if (p.kind === 'fence'){
+    ctx.fillStyle = '#2a2a3a';
+    ctx.fillRect(p.x - 2, p.y, 5, h);                    // posts
+    ctx.fillRect(p.x + p.w - 3, p.y, 5, h);
+    ctx.fillRect(p.x - 2, p.y, p.w + 4, 5);              // top rail
+    ctx.strokeStyle = 'rgba(90,90,120,0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let fx = p.x; fx < p.x + p.w; fx += 10){
+      ctx.moveTo(fx, p.y + 5); ctx.lineTo(fx + 12, bottom);
+      ctx.moveTo(fx + 12, p.y + 5); ctx.lineTo(fx, bottom);
+    }
+    ctx.stroke();
+  } else if (p.kind === 'ac'){
+    ctx.fillStyle = '#3a3a4c';
+    ctx.fillRect(p.x, p.y, p.w, h);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    for (let vy = p.y + 6; vy < p.y + h - 4; vy += 7) ctx.fillRect(p.x + 5, vy, p.w - 10, 3);
+  } else {
+    ctx.fillStyle = '#4a3a68';
+    ctx.fillRect(p.x, p.y, p.w, 14);
+  }
+}
+function drawGround(ctx, level, camX){
+  const pal = level.palette;
+  const W = CONFIG.VIEW_W;
+  for (const s of level.solids){
+    ctx.fillStyle = pal.ground;
+    ctx.fillRect(s.x, s.y, s.w, s.h);
+    ctx.fillStyle = pal.groundTop || pal.ground;
+    ctx.fillRect(s.x, s.y, s.w, 6);
+    // cracks + puddle glints, deterministic from x
+    const from = Math.max(s.x, camX - 20), to = Math.min(s.x + s.w, camX + W + 20);
+    for (let gx = Math.floor(from / 70) * 70; gx < to; gx += 70){
+      const r = (gx * 2654435761 % 97) / 97;
+      if (r < 0.3){
+        ctx.fillStyle = 'rgba(0,0,0,0.35)';
+        ctx.fillRect(gx + r * 40, s.y + 10 + r * 30, 22 + r * 20, 2);
+      } else if (r < 0.45){
+        ctx.fillStyle = 'rgba(125,253,254,0.18)';
+        ctx.fillRect(gx + r * 30, s.y + 26, 30, 3);
+      }
+    }
+  }
+}
 
 /* ============================== Drawing ============================= */
 /* Blocky Minecraft-style figures built from fillRects. Fighters flash
@@ -883,11 +1196,73 @@ const Game = {
     p.x = 100; p.y = Game.level.floorY; p.vx = 0; p.vy = 0; p.facing = 1;
     p.hp = CONFIG.PLAYER.hp;
     p.hitstun = 0; p.invuln = 0; p.attack = null;
-    Game.enemies = []; Game.pickups = []; Game.boss = null;
+    Game.enemies = []; Game.boss = null;
+    Game.pickups = Game.level.pickups.map(d => new Pickup(d.kind, d.x, d.y));
     Game.hazardActive = false;
+    Game.waveIndex = 0; Game.activeWave = null; Game.goArrow = 0; Game.strayIdx = 0;
+    Game.levelTicks = 0;
     Tokens.reset(CONFIG.TOKENS[i]);
     Camera.reset(Game.level);
+    BG.bake(Game.level);
+    Audio.music(Game.level.music);
     Game.setState('LEVEL_INTRO');
+  },
+  spawnEnemy(type, from){
+    const camX = Camera.ix;
+    let x;
+    if (from === 'left') x = camX - 30;
+    else if (from === 'drop') x = camX + 200 + Utils.rand() * (CONFIG.VIEW_W - 400);
+    else x = camX + CONFIG.VIEW_W + 30;
+    const e = new Enemy(type, x, { from: from === 'drop' ? 'drop' : undefined });
+    Game.enemies.push(e);
+    return e;
+  },
+  aliveEnemies(){
+    return Game.enemies.filter(e => !e.dead && e.state !== 'DYING').length;
+  },
+  updateWaves(){
+    const lvl = Game.level, p = Game.player;
+    while (Game.strayIdx < lvl.strays.length && p.x >= lvl.strays[Game.strayIdx].triggerX){
+      const s = lvl.strays[Game.strayIdx++];
+      Game.spawnEnemy(s.type, s.from);
+    }
+    if (!Game.activeWave){
+      const w = lvl.waves[Game.waveIndex];
+      if (w && p.x >= w.triggerX){
+        const lockX = Math.round(Utils.clamp(Camera.x, 0, lvl.width - CONFIG.VIEW_W));
+        Game.activeWave = { pending: w.enemies.map(e => ({ ...e, t: e.delay, spawned: false })), lockX };
+        Camera.minX = lockX; Camera.maxX = lockX;
+        Audio.sfx('waveStart');
+      }
+    } else {
+      const aw = Game.activeWave;
+      for (const pe of aw.pending){
+        if (pe.spawned) continue;
+        pe.t--;
+        if (pe.t <= 0 && Game.aliveEnemies() < CONFIG.MAXONSCREEN[Game.levelIndex]){
+          pe.spawned = true;
+          Game.spawnEnemy(pe.type, pe.from);
+        }
+      }
+      if (aw.pending.every(pe => pe.spawned) && Game.enemies.length === 0){
+        Game.activeWave = null;
+        Game.waveIndex++;
+        Camera.minX = aw.lockX;                     // no backtracking past the brawl
+        Camera.maxX = Game.level.width - CONFIG.VIEW_W;
+        Game.goArrow = 150;
+        Audio.sfx('go');
+      }
+    }
+    if (!Game.activeWave && !Game.boss && p.x >= lvl.width - 80){
+      Game.completeLevel();
+    }
+  },
+  completeLevel(){
+    const timeBonus = Math.max(0, 2000 - Math.floor(Game.levelTicks / 60) * 10);
+    Game.levelBonus = 500 + timeBonus;
+    Game.addScore(Game.levelBonus);
+    Audio.sfx('levelClear');
+    Game.setState('LEVEL_COMPLETE');
   },
   startGame(){
     Game.score = 0; Game.lives = CONFIG.PLAYER.lives;
@@ -916,15 +1291,33 @@ const Game = {
         break;
       case 'PLAYING':
         if (Input.pressed.pause){ Game.setState('PAUSED'); break; }
+        Game.levelTicks++;
+        if (Game.goArrow > 0) Game.goArrow--;
         FX.update();
         if (FX.hitstop > 0) break;   // freeze fighters, world keeps its counters
         Game.player.update(Game.level);
+        // keep the player inside the scroll region
+        Game.player.x = Utils.clamp(Game.player.x, Camera.minX + 16, Camera.maxX + CONFIG.VIEW_W - 16);
         for (const e of Game.enemies) e.update(Game.level, Game.player);
         for (let i = Game.enemies.length - 1; i >= 0; i--){
           if (Game.enemies[i].dead) Game.enemies.splice(i, 1);
         }
+        for (const pk of Game.pickups) pk.update(Game.player);
         if (Game.state !== 'PLAYING') break; // player died mid-update
+        Game.updateWaves();
+        if (Game.state !== 'PLAYING') break;
         Camera.update(Game.player);
+        break;
+      case 'LEVEL_COMPLETE':
+        FX.update();
+        if (Game.stateTick >= 150){
+          const next = Game.levelIndex + 1;
+          if (next < LEVELS.length) Game.loadLevel(next);
+          else Game.setState('VICTORY');
+        }
+        break;
+      case 'VICTORY':
+        if (Game.stateTick > 60 && Input.pressed.confirm) Game.setState('TITLE');
         break;
       case 'LIFE_LOST':
         FX.update();
@@ -951,18 +1344,14 @@ const Game = {
     const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H;
     if (Game.state === 'TITLE'){ Game.drawTitle(ctx, W, H); return; }
     const level = Game.level, pal = level.palette;
-    // sky
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, pal.sky0); grad.addColorStop(1, pal.sky1);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
+    BG.drawSky(ctx, level);
+    BG.draw(ctx, Camera.ix);
     // world
     ctx.save();
     ctx.translate(-Camera.ix + Math.round(FX.shakeX), -Camera.iy + Math.round(FX.shakeY));
-    ctx.fillStyle = pal.ground;
-    for (const s of level.solids) ctx.fillRect(s.x, s.y, s.w, s.h);
-    ctx.fillStyle = pal.plat;
-    for (const p of level.platforms) ctx.fillRect(p.x, p.y, p.w, 14);
+    drawGround(ctx, level, Camera.ix);
+    for (const p of level.platforms) drawPlatform(ctx, p, level);
+    for (const pk of Game.pickups) pk.draw(ctx);
     for (const e of Game.enemies) drawSuit(ctx, e);
     if (Game.state === 'LIFE_LOST'){
       // Jimmy dramatically down
@@ -977,9 +1366,51 @@ const Game = {
     }
     FX.draw(ctx);
     ctx.restore();
+    // pulsing GO arrow after a cleared wave
+    if (Game.goArrow > 0 && Game.state === 'PLAYING'){
+      const pulse = 0.5 + 0.5 * Math.sin(Game.tick * 0.2);
+      ctx.globalAlpha = 0.5 + pulse * 0.5;
+      ctx.fillStyle = '#ffd94f';
+      const ax = W - 110 + pulse * 10, ay = H / 2 - 40;
+      ctx.font = 'bold 34px "Courier New", monospace';
+      ctx.fillText('GO', ax, ay + 10);
+      ctx.fillRect(ax + 44, ay - 8, 26, 12);
+      ctx.beginPath();
+      ctx.moveTo(ax + 70, ay - 16);
+      ctx.lineTo(ax + 92, ay - 2);
+      ctx.lineTo(ax + 70, ay + 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     Game.drawHUD(ctx, W, H);
     // overlays
     ctx.textAlign = 'center';
+    if (Game.state === 'LEVEL_COMPLETE'){
+      const slide = Math.min(1, Game.stateTick / 20);
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(0, H / 2 - 70 * slide, W, 140 * slide);
+      if (slide === 1){
+        ctx.fillStyle = '#3dfc7e';
+        ctx.font = 'bold 46px "Courier New", monospace';
+        ctx.fillText('LEVEL CLEAR!', W / 2, H / 2 - 12);
+        ctx.fillStyle = '#ffd94f';
+        ctx.font = 'bold 22px "Courier New", monospace';
+        ctx.fillText('BONUS +' + Game.levelBonus, W / 2, H / 2 + 28);
+      }
+    } else if (Game.state === 'VICTORY'){
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#3dfc7e';
+      ctx.font = 'bold 50px "Courier New", monospace';
+      ctx.fillText('JIMMY ESCAPED!', W / 2, H / 2 - 40);
+      ctx.fillStyle = '#ffd94f';
+      ctx.font = 'bold 26px "Courier New", monospace';
+      ctx.fillText('SCORE: ' + Game.score, W / 2, H / 2 + 6);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 18px "Courier New", monospace';
+      if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP FOR TITLE', W / 2, H / 2 + 54);
+    }
     if (Game.state === 'LEVEL_INTRO'){
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
       ctx.fillRect(0, H / 2 - 60, W, 120);
