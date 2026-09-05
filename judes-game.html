@@ -45,7 +45,7 @@ const CONFIG = {
     suit:  { hp: 30, dmg: 8,  speed: 1.6, windup: 24, attackRange: 46, score: 100, w: 28, h: 56 },
     elite: { hp: 50, dmg: 12, speed: 2.3, windup: 16, attackRange: 50, score: 250, w: 28, h: 58, blockFirstHit: true },
   },
-  BOSS: { hp: 300, score: 2000, w: 42, h: 82, hay: 20, charge: 14, rushJab: 8, slam: 12 },
+  BOSS: { hp: 220, score: 2000, w: 42, h: 82, hay: 20, charge: 14, rushJab: 8, slam: 12 },
   TOKENS: [1, 2, 2],           // max simultaneous attackers per level
   MAXONSCREEN: [3, 4, 5],
   FALL_DMG: 15, SIGN_DMG: 20,
@@ -947,7 +947,7 @@ class Boss {
   get hurtbox(){ return bodyBox(this); }
   setState(s){ this.state = s; this.stateTick = 0; }
   speedMul(){ return this.phase === 2 ? 1.4 : 1; }
-  windupMul(){ return this.phase === 2 ? 0.7 : 1; }
+  windupMul(){ return this.phase === 2 ? 0.78 : 1; }
   takeHit(def, attacker){
     if (this.state === 'DYING' || this.state === 'PHASE_CHANGE' || this.invuln > 0) return;
     const isTornado = def === ATTACKS.tornado;
@@ -982,7 +982,7 @@ class Boss {
       this.vx = dir * 4; this.vy = -5;
       this.grounded = false;
       Audio.sfx('knockdown');
-    } else if (this.hitsTaken % 5 === 0){
+    } else if (this.hitsTaken % 4 === 0){
       this.setState('STAGGER');
       this.vx = (attacker.x < this.x ? 1 : -1) * 1.5;
       FX.text(this.x, this.y - this.h - 16, 'STAGGERED!', '#ffd94f');
@@ -1013,6 +1013,18 @@ class Boss {
     const dirTo = player.x > this.x ? 1 : -1;
     const arenaMin = Camera.minX + 40;
     const arenaMax = Camera.maxX + CONFIG.VIEW_W - 40;
+    // safety net: if he ever goes over the side, he hauls himself back up
+    if (this.y > CONFIG.VIEW_H + 120 && this.state !== 'DYING'){
+      const back = snapToSolid(level, Utils.clamp(this.x, arenaMin + 40, arenaMax - 40), 60);
+      this.x = back.x; this.y = back.y;
+      this.vx = 0; this.vy = 0; this.grounded = true;
+      this.rot = Math.PI / 2;
+      this.setState('KNOCKDOWN');
+      this.invuln = 20;
+      FX.burst(this.x, this.y - 20, '#3a3a55', 8, 2.5);
+      FX.text(this.x, this.y - this.h - 20, 'HE CLIMBED BACK UP!', '#ffd94f');
+      return;
+    }
     switch (this.state){
       case 'ENTER':
         this.facing = dirTo;
@@ -1050,7 +1062,7 @@ class Boss {
             FX.shake(6);
           }
         }
-        if (this.stateTick >= 38){ this.cooldown = Math.round(70 * this.windupMul()); this.setState('IDLE'); }
+        if (this.stateTick >= 38){ this.cooldown = Math.round(48 * this.windupMul()); this.setState('IDLE'); }
         break;
       }
       case 'CHARGE_WINDUP':
@@ -1080,10 +1092,10 @@ class Boss {
           Audio.sfx('knockdown');
         }
         break;
-      case 'WALL_STAGGER':   // the big phase-1 punish window
+      case 'WALL_STAGGER':   // the big punish window: learn it, win the fight
         this.vx = 0;
         moveAndCollide(this, level);
-        if (this.stateTick >= 60){ this.cooldown = 50; this.setState('IDLE'); }
+        if (this.stateTick >= 75){ this.cooldown = 36; this.setState('IDLE'); }
         break;
       case 'RUSH_WINDUP':
         this.facing = dirTo;
@@ -1103,7 +1115,7 @@ class Boss {
             player.takeHit(this.def.rushJab, this.facing * 4, -2);
           }
         }
-        if (this.stateTick >= 42){ this.cooldown = 55; this.setState('IDLE'); }
+        if (this.stateTick >= 42){ this.cooldown = 42; this.setState('IDLE'); }
         break;
       }
       case 'SLAM_WINDUP':
@@ -1112,8 +1124,9 @@ class Boss {
         moveAndCollide(this, level);
         if (this.stateTick >= 24){
           this.setState('SLAM_AIR');
-          const dx = Utils.clamp(player.x, arenaMin, arenaMax) - this.x;
-          this.vx = dx / 34;
+          // land exactly on standable ground: airtime for vy -13 at g 0.55 is ~47 ticks
+          const target = snapToSolid(level, Utils.clamp(player.x, arenaMin, arenaMax), 50);
+          this.vx = (target.x - this.x) / 47;
           this.vy = -13;
           this.grounded = false;
           Audio.sfx('jump');
@@ -1121,6 +1134,7 @@ class Boss {
         break;
       case 'SLAM_AIR':
         moveAndCollide(this, level);
+        if (this.stateTick > 120){ this.vx = 0; }   // never glide forever
         if (this.grounded && this.stateTick > 5){
           this.setState('SLAM_LAND');
           this.vx = 0;
@@ -1136,7 +1150,7 @@ class Boss {
         break;
       case 'SLAM_LAND':
         moveAndCollide(this, level);
-        if (this.stateTick >= 30){ this.cooldown = 60; this.setState('IDLE'); }
+        if (this.stateTick >= 30){ this.cooldown = 46; this.setState('IDLE'); }
         break;
       case 'STAGGER':
         this.vx *= 0.85;
@@ -2304,6 +2318,10 @@ const Game = {
   },
   summonMinions(n){
     for (let i = 0; i < n; i++) Game.spawnEnemy('suit', i % 2 === 0 ? 'left' : 'right');
+    // one of the suits fumbles his kebab: a mercy snack for the minion phase
+    const cx = Camera.ix + 140 + Utils.rand() * 200;
+    const snap = snapToSolid(Game.level, cx, 24);
+    Game.pickups.push(new Pickup('kebab', snap.x, snap.y));
   },
   updateBoss(){
     const lvl = Game.level, p = Game.player;
