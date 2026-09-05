@@ -132,14 +132,93 @@ const Audio = {
 const FX = {
   shakeMag: 0, shakeX: 0, shakeY: 0,
   hitstop: 0,
+  particles: Array.from({ length: 256 }, () => ({ active: false })),
+  stars: Array.from({ length: 12 }, () => ({ active: false })),
+  texts: Array.from({ length: 16 }, () => ({ active: false })),
   shake(mag){ FX.shakeMag = Math.max(FX.shakeMag, mag); },
   stop(ticks){ FX.hitstop = Math.max(FX.hitstop, ticks); },
+  burst(x, y, color, n, speed, gravity){
+    for (let i = 0; i < n; i++){
+      const p = FX.particles.find(p => !p.active);
+      if (!p) return;
+      const ang = Utils.rand() * Math.PI * 2;
+      const sp = speed * (0.4 + Utils.rand() * 0.6);
+      p.active = true; p.x = x; p.y = y;
+      p.vx = Math.cos(ang) * sp; p.vy = Math.sin(ang) * sp - speed * 0.3;
+      p.life = 0; p.maxLife = 18 + Utils.rand() * 16 | 0;
+      p.color = color; p.size = 2 + Utils.rand() * 3 | 0;
+      p.gravity = gravity || 0;
+    }
+  },
+  star(x, y, big){
+    const s = FX.stars.find(s => !s.active);
+    if (!s) return;
+    s.active = true; s.x = x; s.y = y; s.life = 0;
+    s.maxLife = big ? 10 : 6; s.big = !!big;
+  },
+  text(x, y, str, color){
+    const t = FX.texts.find(t => !t.active);
+    if (!t) return;
+    t.active = true; t.x = x; t.y = y; t.str = str;
+    t.color = color || '#ffd94f'; t.life = 0;
+  },
   update(){
     FX.shakeMag *= 0.85;
     if (FX.shakeMag < 0.3) FX.shakeMag = 0;
     FX.shakeX = (Utils.rand() - 0.5) * 2 * FX.shakeMag;
     FX.shakeY = (Utils.rand() - 0.5) * 2 * FX.shakeMag;
     if (FX.hitstop > 0) FX.hitstop--;
+    for (const p of FX.particles){
+      if (!p.active) continue;
+      p.life++;
+      if (p.life >= p.maxLife){ p.active = false; continue; }
+      p.x += p.vx; p.y += p.vy;
+      p.vy += p.gravity; p.vx *= 0.96;
+    }
+    for (const s of FX.stars){
+      if (s.active && ++s.life >= s.maxLife) s.active = false;
+    }
+    for (const t of FX.texts){
+      if (!t.active) continue;
+      t.y -= 0.7;
+      if (++t.life >= 50) t.active = false;
+    }
+  },
+  draw(ctx){ // world space
+    for (const p of FX.particles){
+      if (!p.active) continue;
+      ctx.globalAlpha = 1 - p.life / p.maxLife;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(Math.round(p.x - p.size / 2), Math.round(p.y - p.size / 2), p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+    for (const s of FX.stars){
+      if (!s.active) continue;
+      const t = s.life / s.maxLife;
+      const size = (s.big ? 34 : 22) * (0.5 + t * 0.9);
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(t * 0.9);
+      ctx.globalAlpha = 1 - t * t;
+      ctx.fillStyle = s.big ? '#ffffff' : '#ffd94f';
+      ctx.fillRect(-size / 2, -2, size, 4);
+      ctx.fillRect(-2, -size / 2, 4, size);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-size / 3, -1.5, size / 1.5, 3);
+      ctx.fillRect(-1.5, -size / 3, 3, size / 1.5);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 15px "Courier New", monospace';
+    for (const t of FX.texts){
+      if (!t.active) continue;
+      ctx.globalAlpha = 1 - Math.max(0, t.life - 25) / 25;
+      ctx.fillStyle = t.color;
+      ctx.fillText(t.str, Math.round(t.x), Math.round(t.y));
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
   },
 };
 
@@ -197,6 +276,44 @@ function groundAhead(f, level, ahead){
   return false;
 }
 
+/* ============================== Combat ============================== */
+/* Frame data in 60Hz ticks. box is relative to feet, mirrored by facing. */
+const ATTACKS = {
+  jab:     { startup: 4,  active: 3,  recovery: 6,  dmg: 6,  box: { dx: 16, dy: -44, w: 34, h: 18 }, kbx: 1.5, kby: 0,  hitstun: 14, hitstop: 2, chain: 'cross' },
+  cross:   { startup: 5,  active: 3,  recovery: 8,  dmg: 8,  box: { dx: 18, dy: -44, w: 38, h: 18 }, kbx: 2.5, kby: 0,  hitstun: 16, hitstop: 3, chain: 'knee' },
+  knee:    { startup: 6,  active: 4,  recovery: 12, dmg: 14, box: { dx: 14, dy: -36, w: 36, h: 28 }, kbx: 6,   kby: -5, hitstun: 30, hitstop: 6, launch: true },
+  kick:    { startup: 10, active: 4,  recovery: 14, dmg: 16, box: { dx: 18, dy: -40, w: 46, h: 24 }, kbx: 7,   kby: -3, hitstun: 30, hitstop: 6, launch: true },
+  tornado: { startup: 8,  active: 30, recovery: 20, dmg: 40, radius: 110,                            kbx: 9,   kby: -7, hitstun: 40, hitstop: 8, launch: true, shake: 14 },
+};
+function attackBox(f, box){
+  return {
+    x: f.x + (f.facing > 0 ? box.dx : -box.dx - box.w),
+    y: f.y + box.dy, w: box.w, h: box.h,
+  };
+}
+function attackTotal(def){ return def.startup + def.active + def.recovery; }
+
+/* Attack token pool: caps how many enemies attack at once. */
+const Tokens = {
+  max: 1,
+  held: new Set(),
+  reset(max){ Tokens.max = max; Tokens.held.clear(); },
+  request(e){
+    if (Tokens.held.has(e)) return true;
+    if (e.tokenCooldown > 0 || Tokens.held.size >= Tokens.effectiveMax()) return false;
+    Tokens.held.add(e);
+    return true;
+  },
+  release(e){
+    if (Tokens.held.delete(e)) e.tokenCooldown = 30 + (Utils.rand() * 40 | 0);
+  },
+  effectiveMax(){
+    if (Game.hazardActive) return 1;                 // ducking a sign: ease off
+    if (Game.boss && Game.boss.state === 'WINDUP') return 1;
+    return Tokens.max;
+  },
+};
+
 /* ============================== Player ============================== */
 class Player {
   constructor(){
@@ -206,14 +323,87 @@ class Player {
     this.facing = 1; this.grounded = false; this.coyote = 0;
     this.hp = P.hp; this.meter = 0;
     this.ducking = false;
-    this.hitstun = 0; this.invuln = 0;
-    this.attack = null;      // {name, phase, ticks, buffered, hitSet}
-    this.comboTimer = 0;
+    this.hitstun = 0; this.invuln = 0; this.flash = 0;
+    this.attack = null;      // {name, ticks, hitSet, buffered}
+    this.comboCount = 0; this.comboTimer = 0;
     this.runTick = 0;
   }
   get hurtbox(){ return bodyBox(this); }
+  startAttack(name){
+    this.attack = { name, ticks: 0, hitSet: new Set(), buffered: null };
+    this.ducking = false;
+    if (name === 'tornado'){
+      this.meter = 0;
+      this.invuln = Math.max(this.invuln, ATTACKS.tornado.startup + ATTACKS.tornado.active);
+      FX.shake(ATTACKS.tornado.shake);
+      Audio.sfx('tornado');
+    } else {
+      Audio.sfx(name === 'kick' ? 'swingHeavy' : 'swing');
+    }
+  }
+  gainMeter(n){
+    if (this.meter >= CONFIG.METER.max) return;
+    this.meter = Math.min(CONFIG.METER.max, this.meter + n);
+    if (this.meter >= CONFIG.METER.max){
+      Audio.sfx('meterFull');
+      FX.text(this.x, this.y - this.h - 18, 'TORNADO READY!', '#7dfdfe');
+    }
+  }
+  landHit(target, def){
+    const hb = target.hurtbox;
+    const cx = Utils.clamp(this.x + this.facing * 30, hb.x, hb.x + hb.w);
+    const cy = hb.y + hb.h * 0.35;
+    FX.star(cx, cy, !!def.launch);
+    FX.stop(def.hitstop);
+    if (def.launch) FX.shake(Math.max(FX.shakeMag, 5));
+    Audio.sfx(def.launch ? 'hitHeavy' : 'hit');
+    if (def !== ATTACKS.tornado) this.gainMeter(CONFIG.METER.perHit);
+    this.comboCount++; this.comboTimer = 40;
+    if (this.comboCount >= 3) FX.text(this.x, this.y - this.h - 32, 'COMBO x' + this.comboCount, '#ff4fd8');
+  }
+  tryHits(def){
+    const targets = Game.boss ? Game.enemies.concat([Game.boss]) : Game.enemies;
+    if (def.radius){
+      for (const t of targets){
+        if (t.dead || t.state === 'DYING' || this.attack.hitSet.has(t) || t.invuln > 0) continue;
+        const hb = t.hurtbox;
+        const tx = hb.x + hb.w / 2, ty = hb.y + hb.h / 2;
+        const dx = tx - this.x, dy = ty - (this.y - this.h / 2);
+        if (dx * dx + dy * dy <= def.radius * def.radius){
+          this.attack.hitSet.add(t);
+          t.takeHit(def, this);
+          this.landHit(t, def);
+        }
+      }
+      return;
+    }
+    const box = attackBox(this, def.box);
+    for (const t of targets){
+      if (t.dead || t.state === 'DYING' || this.attack.hitSet.has(t) || t.invuln > 0) continue;
+      if (Utils.aabb(box, t.hurtbox)){
+        this.attack.hitSet.add(t);
+        t.takeHit(def, this);
+        this.landHit(t, def);
+      }
+    }
+  }
+  takeHit(dmg, kbx, kby){
+    if (this.invuln > 0) return;
+    this.hp -= dmg;
+    this.hitstun = 20; this.flash = 4;
+    this.invuln = CONFIG.PLAYER.invulnAfterHit;
+    this.attack = null; this.ducking = false;
+    this.vx = kbx; this.vy = kby;
+    this.comboCount = 0;
+    FX.shake(4);
+    FX.burst(this.x, this.y - 40, '#ff6a6a', 5, 2.5);
+    Audio.sfx('hurt');
+    if (this.hp <= 0){ this.hp = 0; Game.onPlayerDeath(); }
+  }
   update(level){
     if (this.invuln > 0) this.invuln--;
+    if (this.flash > 0) this.flash--;
+    if (this.comboTimer > 0){ this.comboTimer--; if (this.comboTimer === 0) this.comboCount = 0; }
     if (this.hitstun > 0){
       this.hitstun--;
       this.vx *= 0.85;
@@ -221,27 +411,242 @@ class Player {
       return;
     }
     const held = Input.held, pressed = Input.pressed;
+    // attack progression
+    if (this.attack){
+      const a = this.attack, def = ATTACKS[a.name];
+      a.ticks++;
+      const inActive = a.ticks > def.startup && a.ticks <= def.startup + def.active;
+      if (inActive) this.tryHits(def);
+      if (pressed.punch && def.chain && a.ticks > def.startup) a.buffered = def.chain;
+      if (a.ticks >= attackTotal(def)){
+        const next = a.buffered;
+        this.attack = null;
+        if (next) this.startAttack(next);
+      }
+    }
     const attacking = !!this.attack;
+    // start attacks (grounded only)
+    if (!attacking && this.grounded){
+      if (pressed.punch) this.startAttack('jab');
+      else if (pressed.kick) this.startAttack('kick');
+      else if (pressed.tornado){
+        if (this.meter >= CONFIG.METER.max) this.startAttack('tornado');
+        else { Audio.sfx('dud'); Game.meterFlash = 20; }
+      }
+    }
     // movement
     let dir = 0;
     if (held.left) dir -= 1;
     if (held.right) dir += 1;
-    this.ducking = held.down && this.grounded && !attacking;
-    if (!attacking && !this.ducking){
+    this.ducking = held.down && this.grounded && !this.attack;
+    if (!this.attack && !this.ducking){
       this.vx = dir * CONFIG.MOVE_SPEED;
       if (dir !== 0){ this.facing = dir; this.runTick++; }
     } else {
       this.vx = this.grounded ? 0 : this.vx * 0.98;
     }
     // jump (with coyote time + early-release cut)
-    if (pressed.jump && !attacking && (this.grounded || this.coyote > 0)){
+    if (pressed.jump && !this.attack && (this.grounded || this.coyote > 0)){
       this.vy = CONFIG.JUMP_V;
       this.grounded = false; this.coyote = 0;
       Audio.sfx('jump');
     }
     if (!held.jump && this.vy < -4) this.vy = -4;
     moveAndCollide(this, level);
-    if (this.comboTimer > 0) this.comboTimer--;
+  }
+}
+
+/* ============================== Enemy =============================== */
+class Enemy {
+  constructor(type, x, opts = {}){
+    const def = CONFIG.ENEMIES[type];
+    this.type = type; this.def = def;
+    this.w = def.w; this.h = def.h;
+    this.hp = def.hp;
+    const floorY = Game.level ? Game.level.floorY : 470;
+    this.x = x;
+    this.y = opts.from === 'drop' ? floorY - 340 : (opts.y !== undefined ? opts.y : floorY);
+    this.vx = 0; this.vy = 0;
+    this.facing = -1; this.grounded = false; this.coyote = 0;
+    this.ducking = false; this.duckH = def.h;
+    this.state = opts.from === 'drop' ? 'DROP_IN' : 'APPROACH';
+    this.stateTick = 0;
+    this.hitstun = 0; this.flash = 0;
+    this.invuln = opts.from === 'drop' ? 40 : 0;
+    this.tokenCooldown = 20 + (Utils.rand() * 40 | 0);
+    this.attackTick = 0;
+    this.alpha = 1; this.rot = 0; this.bounced = false;
+    this.blockUsed = false;
+    this.dead = false;
+    this.runTick = 0;
+    this.jitterPhase = Utils.rand() * 6.28;
+  }
+  get hurtbox(){ return bodyBox(this); }
+  setState(s){ this.state = s; this.stateTick = 0; }
+  takeHit(def, attacker){
+    if (this.def.blockFirstHit && !this.blockUsed && this.state !== 'TUMBLE' && this.state !== 'DOWNED'){
+      this.blockUsed = true;
+      this.flash = 6;
+      this.vx = (attacker.x < this.x ? 1 : -1) * 2;
+      FX.text(this.x, this.y - this.h - 14, 'BLOCKED!', '#aaaacc');
+      Audio.sfx('block');
+      return;
+    }
+    const dir = attacker.x < this.x ? 1 : -1;
+    this.hp -= def.dmg;
+    this.flash = 4;
+    this.facing = -dir;
+    Tokens.release(this);
+    if (this.hp <= 0){
+      this.setState('DYING');
+      this.vx = dir * def.kbx * 0.4; this.vy = 0;
+      Game.addScore(this.def.score, this.x, this.y - this.h - 10);
+      FX.burst(this.x, this.y - this.h / 2, '#4a4a6a', 8, 2.2);
+      Audio.sfx('knockdown');
+      return;
+    }
+    if (def.launch){
+      this.setState('TUMBLE');
+      this.bounced = false;
+      this.vx = dir * def.kbx; this.vy = def.kby;
+      this.grounded = false;
+      Audio.sfx('knockdown');
+    } else {
+      this.setState('STAGGER');
+      this.hitstun = def.hitstun;
+      this.vx = dir * def.kbx * 0.7;
+    }
+  }
+  attackHitbox(){
+    return attackBox(this, { dx: 8, dy: -46, w: 38, h: 18 });
+  }
+  update(level, player){
+    this.stateTick++;
+    if (this.invuln > 0) this.invuln--;
+    if (this.flash > 0) this.flash--;
+    if (this.tokenCooldown > 0) this.tokenCooldown--;
+    const dist = Math.abs(player.x - this.x);
+    const dirTo = player.x > this.x ? 1 : -1;
+    switch (this.state){
+      case 'DROP_IN':
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.grounded){
+          FX.burst(this.x, this.y, '#3a3a55', 6, 2);
+          this.setState('APPROACH');
+        }
+        break;
+      case 'APPROACH': {
+        this.facing = dirTo;
+        const desired = this.def.attackRange - 6;
+        if (dist > desired){
+          this.vx = dirTo * this.def.speed;
+          this.runTick++;
+          if (this.grounded && !groundAhead(this, level, 12)) this.vx = 0;
+        } else {
+          this.vx = 0;
+          if (Tokens.request(this)) this.setState('WINDUP');
+          else this.setState('HOLD');
+        }
+        // separation so they fan out instead of stacking
+        for (const e of Game.enemies){
+          if (e === this || e.dead) continue;
+          if (Math.abs(e.x - this.x) < 30) this.x -= Math.sign(e.x - this.x) * 0.4;
+        }
+        moveAndCollide(this, level);
+        break;
+      }
+      case 'HOLD': {
+        this.facing = dirTo;
+        if (dist < this.def.attackRange - 12) this.vx = -dirTo * 0.8;
+        else if (dist > this.def.attackRange + 70){ this.setState('APPROACH'); break; }
+        else this.vx = Math.sin(this.stateTick * 0.08 + this.jitterPhase) * 0.5;
+        if (this.grounded && !groundAhead(this, level, 12) && Math.sign(this.vx) === this.facing) this.vx = 0;
+        if (this.stateTick % 18 === 0 && dist < this.def.attackRange + 24 && Tokens.request(this)){
+          this.setState('WINDUP');
+        }
+        moveAndCollide(this, level);
+        break;
+      }
+      case 'WINDUP':
+        this.facing = dirTo;
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= this.def.windup){
+          this.setState('ATTACK');
+          Audio.sfx('swing');
+        }
+        break;
+      case 'ATTACK': {
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick > 2 && this.stateTick <= 6 && player.invuln <= 0 && player.hp > 0){
+          if (Utils.aabb(this.attackHitbox(), player.hurtbox)){
+            player.takeHit(this.def.dmg, this.facing * 3, -2);
+          }
+        }
+        if (this.stateTick >= 10){
+          Tokens.release(this);
+          this.setState('RECOVER');
+        }
+        break;
+      }
+      case 'RECOVER':
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 14) this.setState('APPROACH');
+        break;
+      case 'STAGGER':
+        this.hitstun--;
+        this.vx *= 0.88;
+        moveAndCollide(this, level);
+        if (this.hitstun <= 0) this.setState('APPROACH');
+        break;
+      case 'TUMBLE': {
+        this.rot += 0.28 * -this.facing;
+        const preVy = this.vy;
+        moveAndCollide(this, level);
+        this.vx *= this.grounded ? 0.8 : 0.995;
+        if (this.grounded){
+          if (!this.bounced && preVy > 3.5){
+            this.bounced = true;
+            this.vy = -preVy * 0.4;
+            this.grounded = false;
+            this.y -= 1;
+            FX.burst(this.x, this.y, '#3a3a55', 4, 1.6);
+          } else if (Math.abs(this.vx) < 0.6){
+            this.setState('DOWNED');
+            this.rot = 0;
+          }
+        }
+        break;
+      }
+      case 'DOWNED':
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 45) this.setState('GETUP');
+        break;
+      case 'GETUP':
+        this.invuln = Math.max(this.invuln, 2);
+        this.vx = 0;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 30){
+          this.invuln = 30;
+          this.setState('APPROACH');
+        }
+        break;
+      case 'DYING':
+        this.rot = Math.min(Math.PI / 2, this.stateTick * (Math.PI / 2) / 15);
+        if (this.stateTick > 15) this.alpha = Math.max(0, 1 - (this.stateTick - 15) / 45);
+        this.vx *= 0.9;
+        moveAndCollide(this, level);
+        if (this.stateTick >= 62){
+          this.dead = true;
+          Tokens.release(this);
+          FX.burst(this.x, this.y - 20, '#5a5a80', 10, 2.4);
+        }
+        break;
+    }
   }
 }
 
@@ -281,38 +686,178 @@ const Camera = {
 };
 
 /* ============================== Drawing ============================= */
-/* Placeholder blocky Jimmy; the full pose system arrives with combat. */
+/* Blocky Minecraft-style figures built from fillRects. Fighters flash
+   white when struck: the c() helper swaps every colour for white. */
+function flashColor(f){
+  return f.flash > 0 ? () => '#ffffff' : (col) => col;
+}
 function drawJimmy(ctx, p){
-  const x = Math.round(p.x), feetY = Math.round(p.y);
+  const c = flashColor(p);
+  const atk = p.attack, def = atk ? ATTACKS[atk.name] : null;
+  ctx.save();
+  ctx.translate(Math.round(p.x), Math.round(p.y));
+  const fx = p.facing;
+  if (p.invuln > 0 && p.hitstun <= 0 && (!atk || atk.name !== 'tornado') && (Game.tick % 6) < 3){
+    ctx.globalAlpha = 0.45; // invulnerability blink
+  }
+  // tornado: whole-body spin
+  if (atk && atk.name === 'tornado'){
+    const spin = atk.ticks * 0.55;
+    ctx.translate(0, -28);
+    ctx.rotate(spin * fx);
+    // motion ring
+    ctx.globalAlpha = 0.25;
+    ctx.strokeStyle = '#7dfdfe';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(0, 0, 46, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = c('#101018');
+    ctx.fillRect(-11, -14, 22, 26);           // torso
+    ctx.fillStyle = c('#15151d');
+    ctx.fillRect(-44, 6, 40, 7);              // extended legs both sides
+    ctx.fillRect(4, 6, 40, 7);
+    ctx.fillStyle = c('#0c0c14');
+    ctx.fillRect(-30, -12, 22, 6);            // arms out
+    ctx.fillRect(8, -12, 22, 6);
+    ctx.fillStyle = c('#050508');
+    ctx.fillRect(-10, -34, 20, 20);           // head
+    ctx.fillStyle = c('#0a0a12');
+    ctx.fillRect(-12, -36, 24, 8);            // hood rim
+    ctx.fillStyle = '#7dfdfe';
+    ctx.fillRect(-6, -26, 12, 3);             // eye streak
+    ctx.restore();
+    return;
+  }
   const duck = p.ducking;
   const headSize = 20;
-  const bodyH = duck ? 10 : 24, legH = duck ? 4 : 12;
-  const headY = feetY - legH - bodyH - headSize;
-  ctx.save();
-  ctx.translate(x, 0);
-  const fx = p.facing;
+  const bodyH = duck ? 12 : 24, legH = duck ? 6 : 12;
+  const feet = 0;
+  const bodyY = feet - legH - bodyH;
+  const headY = bodyY - headSize;
+  let lean = 0;
+  if (p.hitstun > 0) lean = -fx * 0.15;
+  else if (atk && def && !def.radius) lean = fx * 0.08 * Math.min(1, atk.ticks / def.startup);
+  ctx.rotate(lean);
+  // progress through attack for limb extension
+  let ext = 0;
+  if (atk && def){
+    const t = atk.ticks;
+    if (t <= def.startup) ext = t / def.startup;
+    else if (t <= def.startup + def.active) ext = 1;
+    else ext = Math.max(0, 1 - (t - def.startup - def.active) / def.recovery);
+  }
   // legs
-  ctx.fillStyle = '#15151d';
+  ctx.fillStyle = c('#15151d');
   const stride = (!p.grounded) ? 5 : (Math.abs(p.vx) > 0.5 ? Math.round(Math.sin(p.runTick * 0.4) * 5) : 0);
-  ctx.fillRect(-8 + stride, feetY - legH, 7, legH);
-  ctx.fillRect(2 - stride, feetY - legH, 7, legH);
+  if (atk && atk.name === 'kick'){
+    ctx.fillRect(-fx * 8, feet - legH, 7, legH);                       // standing leg
+    ctx.fillRect(fx > 0 ? 2 : -2 - 26 - 14 * ext, feet - 34, 26 + 14 * ext, 8); // kicking leg
+  } else if (atk && atk.name === 'knee'){
+    ctx.fillRect(-fx * 8, feet - legH, 7, legH);
+    ctx.fillRect(fx > 0 ? 4 : -18, feet - 28 - 6 * ext, 14, 12);       // raised knee block
+  } else {
+    ctx.fillRect(-8 + stride, feet - legH, 7, legH);
+    ctx.fillRect(2 - stride, feet - legH, 7, legH);
+  }
   // hoodie body
-  ctx.fillStyle = '#101018';
-  ctx.fillRect(-11, feetY - legH - bodyH, 22, bodyH);
+  ctx.fillStyle = c('#101018');
+  ctx.fillRect(-11, bodyY, 22, bodyH);
+  // hood string detail
+  ctx.fillStyle = c('#2a2a3a');
+  ctx.fillRect(-2, bodyY + 2, 1, 8);
+  ctx.fillRect(2, bodyY + 2, 1, 8);
   // arms
-  ctx.fillStyle = '#0c0c14';
-  ctx.fillRect(fx > 0 ? 8 : -13, feetY - legH - bodyH + 2, 5, 14);
-  ctx.fillRect(fx > 0 ? -13 : 8, feetY - legH - bodyH + 4, 5, 12);
+  ctx.fillStyle = c('#0c0c14');
+  if (atk && (atk.name === 'jab' || atk.name === 'cross')){
+    const reach = (atk.name === 'jab' ? 18 : 24) * ext;
+    const armY = bodyY + 4;
+    ctx.fillRect(fx > 0 ? 8 : -8 - 8 - reach, armY, 8 + reach, 6);     // punching arm
+    ctx.fillRect(fx > 0 ? -12 : 6, armY + 6, 6, 10);                   // guard arm
+    if (ext === 1){                                                    // fist
+      ctx.fillStyle = c('#c9a07a');
+      ctx.fillRect(fx > 0 ? 14 + reach : -20 - reach, armY, 5, 6);
+      ctx.fillStyle = c('#0c0c14');
+    }
+  } else {
+    // guard stance arms
+    ctx.fillRect(fx > 0 ? 7 : -12, bodyY + 3, 5, 13);
+    ctx.fillRect(fx > 0 ? -12 : 7, bodyY + 5, 5, 12);
+  }
   // hood + head
-  ctx.fillStyle = '#0a0a12';
+  ctx.fillStyle = c('#0a0a12');
   ctx.fillRect(-headSize / 2 - 2, headY - 2, headSize + 4, headSize + 3);
-  ctx.fillStyle = '#050508';
+  ctx.fillStyle = c('#050508');
   ctx.fillRect(-headSize / 2, headY, headSize, headSize);
-  // glowing eyes
+  // glowing eyes under the hood
   ctx.fillStyle = '#7dfdfe';
   const eyeX = fx > 0 ? 1 : -7;
   ctx.fillRect(eyeX, headY + 8, 6, 3);
   ctx.restore();
+}
+function drawSuit(ctx, e){
+  const c = flashColor(e);
+  const lying = e.state === 'DOWNED' || (e.state === 'DYING' && e.rot >= Math.PI / 2 - 0.01);
+  const elite = e.type === 'elite';
+  const suitCol = elite ? '#2e1520' : '#1d1d2e';
+  const glassCol = elite ? '#ff3355' : '#5a5aff';
+  ctx.save();
+  ctx.globalAlpha = e.alpha;
+  ctx.translate(Math.round(e.x), Math.round(e.y - e.h / 2));
+  if (e.state === 'TUMBLE' || e.state === 'DYING') ctx.rotate(e.rot);
+  else if (lying) ctx.rotate(Math.PI / 2 * (e.facing > 0 ? -1 : 1));
+  if (e.state === 'GETUP'){
+    const t = e.stateTick / 30;
+    ctx.rotate((Math.PI / 2) * (1 - t) * (e.facing > 0 ? -1 : 1));
+  }
+  const fx = e.facing;
+  const H = e.h, half = H / 2;
+  // windup telegraph: red pulse behind the body
+  if (e.state === 'WINDUP'){
+    const pulse = (e.stateTick % 8) < 4;
+    ctx.fillStyle = pulse ? 'rgba(255,60,60,0.35)' : 'rgba(255,255,255,0.25)';
+    ctx.fillRect(-18, -half - 6, 36, H + 10);
+    ctx.rotate(-fx * 0.12); // lean back
+  }
+  // legs
+  ctx.fillStyle = c('#12121c');
+  const stride = (e.state === 'APPROACH' && Math.abs(e.vx) > 0.4) ? Math.round(Math.sin(e.runTick * 0.35) * 5) : 0;
+  ctx.fillRect(-8 + stride, half - 24, 7, 24);
+  ctx.fillRect(2 - stride, half - 24, 7, 24);
+  // suit jacket
+  ctx.fillStyle = c(suitCol);
+  ctx.fillRect(-11, -half + 18, 22, 32);
+  // shirt + tie
+  ctx.fillStyle = c('#d8d8e8');
+  ctx.fillRect(-2, -half + 20, 5, 10);
+  ctx.fillStyle = c(elite ? '#a01030' : '#0a0a14');
+  ctx.fillRect(-1, -half + 22, 3, 12);
+  // arms
+  ctx.fillStyle = c(suitCol);
+  if (e.state === 'ATTACK'){
+    ctx.fillRect(fx > 0 ? 8 : -30, -half + 22, 24, 6);   // extended punch
+    ctx.fillRect(fx > 0 ? -12 : 7, -half + 26, 5, 12);
+  } else if (e.state === 'WINDUP'){
+    ctx.fillRect(fx > 0 ? -14 : 8, -half + 20, 7, 8);    // cocked fist
+    ctx.fillRect(fx > 0 ? 7 : -12, -half + 26, 5, 12);
+  } else {
+    ctx.fillRect(-13, -half + 22, 5, 16);
+    ctx.fillRect(8, -half + 22, 5, 16);
+  }
+  // head + sunglasses
+  ctx.fillStyle = c('#0b0b12');
+  ctx.fillRect(-9, -half, 18, 18);
+  ctx.fillStyle = c(glassCol);
+  const gx = fx > 0 ? -3 : -9;
+  ctx.fillRect(gx, -half + 6, 12, 4);
+  ctx.restore();
+  // "!" attack warning pip (drawn unrotated above the head)
+  if (e.state === 'WINDUP'){
+    ctx.fillStyle = (e.stateTick % 8) < 4 ? '#ff5555' : '#ffffff';
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', Math.round(e.x), Math.round(e.y - e.h - 8));
+    ctx.textAlign = 'left';
+  }
 }
 
 /* ============================== Game ================================ */
@@ -323,7 +868,13 @@ const Game = {
   levelIndex: 0, level: null,
   player: null,
   enemies: [], pickups: [], boss: null,
+  hazardActive: false,
+  meterFlash: 0,
   setState(s){ Game.state = s; Game.stateTick = 0; },
+  addScore(points, x, y){
+    Game.score += points;
+    if (x !== undefined) FX.text(x, y, '+' + points, '#ffd94f');
+  },
   loadLevel(i){
     Game.levelIndex = i;
     Game.level = LEVELS[i];
@@ -331,7 +882,10 @@ const Game = {
     const p = Game.player;
     p.x = 100; p.y = Game.level.floorY; p.vx = 0; p.vy = 0; p.facing = 1;
     p.hp = CONFIG.PLAYER.hp;
+    p.hitstun = 0; p.invuln = 0; p.attack = null;
     Game.enemies = []; Game.pickups = []; Game.boss = null;
+    Game.hazardActive = false;
+    Tokens.reset(CONFIG.TOKENS[i]);
     Camera.reset(Game.level);
     Game.setState('LEVEL_INTRO');
   },
@@ -340,8 +894,19 @@ const Game = {
     Game.player = new Player();
     Game.loadLevel(0);
   },
+  onPlayerDeath(){
+    FX.shake(8);
+    Audio.sfx('death');
+    Game.setState('LIFE_LOST');
+  },
+  testSpawn(type, x){ // verification hook
+    const e = new Enemy(type, x);
+    Game.enemies.push(e);
+    return e;
+  },
   update(){
     Game.tick++; Game.stateTick++;
+    if (Game.meterFlash > 0) Game.meterFlash--;
     switch (Game.state){
       case 'TITLE':
         if (Input.pressed.confirm) Game.startGame();
@@ -354,13 +919,30 @@ const Game = {
         FX.update();
         if (FX.hitstop > 0) break;   // freeze fighters, world keeps its counters
         Game.player.update(Game.level);
+        for (const e of Game.enemies) e.update(Game.level, Game.player);
+        for (let i = Game.enemies.length - 1; i >= 0; i--){
+          if (Game.enemies[i].dead) Game.enemies.splice(i, 1);
+        }
+        if (Game.state !== 'PLAYING') break; // player died mid-update
         Camera.update(Game.player);
+        break;
+      case 'LIFE_LOST':
+        FX.update();
+        if (Game.stateTick >= 80){
+          Game.lives--;
+          if (Game.lives <= 0){
+            Game.setState('GAME_OVER');
+            Audio.sfx('gameOver');
+          } else {
+            Game.loadLevel(Game.levelIndex);
+          }
+        }
         break;
       case 'PAUSED':
         if (Input.pressed.pause || Input.pressed.confirm) Game.setState('PLAYING');
         break;
       case 'GAME_OVER':
-        if (Input.pressed.confirm) Game.startGame();
+        if (Game.stateTick > 30 && Input.pressed.confirm) Game.startGame();
         break;
     }
     Input.consumePressed();
@@ -381,8 +963,21 @@ const Game = {
     for (const s of level.solids) ctx.fillRect(s.x, s.y, s.w, s.h);
     ctx.fillStyle = pal.plat;
     for (const p of level.platforms) ctx.fillRect(p.x, p.y, p.w, 14);
-    drawJimmy(ctx, Game.player);
+    for (const e of Game.enemies) drawSuit(ctx, e);
+    if (Game.state === 'LIFE_LOST'){
+      // Jimmy dramatically down
+      ctx.save();
+      ctx.translate(Math.round(Game.player.x), Math.round(Game.player.y - 12));
+      ctx.rotate(Math.PI / 2 * (Game.player.facing > 0 ? -1 : 1) * Math.min(1, Game.stateTick / 12));
+      ctx.translate(-Math.round(Game.player.x), -Math.round(Game.player.y - 12));
+      drawJimmy(ctx, Game.player);
+      ctx.restore();
+    } else {
+      drawJimmy(ctx, Game.player);
+    }
+    FX.draw(ctx);
     ctx.restore();
+    Game.drawHUD(ctx, W, H);
     // overlays
     ctx.textAlign = 'center';
     if (Game.state === 'LEVEL_INTRO'){
@@ -400,7 +995,59 @@ const Game = {
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 40px "Courier New", monospace';
       ctx.fillText('PAUSED', W / 2, H / 2);
+      ctx.font = '16px "Courier New", monospace';
+      ctx.fillText('PRESS P TO KEEP FIGHTING', W / 2, H / 2 + 36);
+    } else if (Game.state === 'LIFE_LOST'){
+      const a = Math.min(0.5, Game.stateTick / 60);
+      ctx.fillStyle = 'rgba(120,0,30,' + a + ')';
+      ctx.fillRect(0, 0, W, H);
+    } else if (Game.state === 'GAME_OVER'){
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ff4444';
+      ctx.font = 'bold 56px "Courier New", monospace';
+      ctx.fillText('GAME OVER', W / 2, H / 2 - 30);
+      ctx.fillStyle = '#ffd94f';
+      ctx.font = 'bold 24px "Courier New", monospace';
+      ctx.fillText('SCORE: ' + Game.score, W / 2, H / 2 + 14);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 18px "Courier New", monospace';
+      if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP TO TRY AGAIN', W / 2, H / 2 + 60);
     }
+    ctx.textAlign = 'left';
+  },
+  drawHUD(ctx, W, H){
+    // health bar
+    const hp = Math.max(0, Game.player.hp) / CONFIG.PLAYER.hp;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(16, 14, 208, 46);
+    ctx.fillStyle = '#7dfdfe';
+    ctx.font = 'bold 12px "Courier New", monospace';
+    ctx.fillText('JIMMY', 22, 27);
+    ctx.fillStyle = '#3a0a14';
+    ctx.fillRect(22, 32, 196, 10);
+    ctx.fillStyle = hp > 0.35 ? '#3dfc7e' : '#ff4444';
+    ctx.fillRect(22, 32, Math.round(196 * hp), 10);
+    // power meter
+    const m = Game.player.meter / CONFIG.METER.max;
+    ctx.fillStyle = Game.meterFlash > 0 && (Game.meterFlash % 6) < 3 ? '#5a1020' : '#101a3a';
+    ctx.fillRect(22, 46, 196, 8);
+    const full = m >= 1;
+    ctx.fillStyle = full ? ((Game.tick % 20) < 10 ? '#ff4fd8' : '#7dfdfe') : '#7dfdfe';
+    ctx.fillRect(22, 46, Math.round(196 * m), 8);
+    // lives (little hoods)
+    for (let i = 0; i < Game.lives; i++){
+      const lx = 238 + i * 22;
+      ctx.fillStyle = '#0a0a12';
+      ctx.fillRect(lx, 20, 16, 16);
+      ctx.fillStyle = '#7dfdfe';
+      ctx.fillRect(lx + 4, 27, 8, 3);
+    }
+    // score
+    ctx.fillStyle = '#ffd94f';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(Game.score).padStart(6, '0'), W - 20, 34);
     ctx.textAlign = 'left';
   },
   drawTitle(ctx, W, H){
