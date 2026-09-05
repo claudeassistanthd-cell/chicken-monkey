@@ -108,24 +108,269 @@ const Input = {
       if (a) Input.release(a);
     });
     window.addEventListener('blur', Input.clearHeld);
+    window.addEventListener('pointerdown', () => Audio.unlock());
+    window.addEventListener('touchend', () => Audio.unlock());
   },
 };
 
 /* ============================== Audio =============================== */
-/* Fleshed out in the audio milestone; unlock stub is needed from day one
-   so the first gesture can create/resume the context. */
+/* All sound is synthesised with the Web Audio API - no files. The
+   context is created lazily on the first user gesture (iPad rule) and
+   music runs on a lookahead step sequencer. */
+const TRACKS = {
+  //             16 steps = 2 bars of 8ths. null = rest, numbers = semitones from root
+  alley: {
+    bpm: 100, root: 55,
+    bass: [0, null, null, null, 0, null, 3, null, 5, null, null, null, 3, null, -2, null],
+    lead: [null, null, 12, null, null, null, null, null, null, 15, null, 12, null, null, null, null],
+    kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0],
+    hat:  [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1],
+  },
+  rooftop: {
+    bpm: 122, root: 65,
+    bass: [0, null, 0, null, 5, null, 3, null, 0, null, 0, null, 7, null, 5, null],
+    lead: [12, null, 15, null, 19, null, 15, null, 12, null, 17, null, 15, null, 12, null],
+    kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0],
+    hat:  [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+  },
+  train: {
+    bpm: 140, root: 49,
+    bass: [0, 0, 0, 0, 3, 3, 0, 0, 5, 5, 0, 0, 7, 5, 3, 2],
+    lead: [null, null, 12, null, null, 15, null, null, null, null, 17, null, 15, null, 12, null],
+    kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0],
+    hat:  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  },
+  boss: {
+    bpm: 150, root: 41,
+    bass: [0, 0, null, 0, 1, null, 0, 0, 0, 0, null, 0, 6, null, 1, 0],
+    lead: [12, null, null, null, 13, null, null, null, 12, null, null, null, 18, null, null, null],
+    kick: [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 1],
+    hat:  [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1],
+  },
+};
 const Audio = {
-  ctx: null,
+  ctx: null, master: null, sfxGain: null, musicGain: null, noiseBuf: null,
+  currentTrack: null, pendingTrack: null,
+  step: 0, nextNoteTime: 0, timer: null,
+  muted: false,
   unlock(){
     if (!Audio.ctx){
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
-      Audio.ctx = new AC();
+      const ctx = Audio.ctx = new AC();
+      const comp = ctx.createDynamicsCompressor();   // safety limiter
+      comp.threshold.value = -14;
+      comp.connect(ctx.destination);
+      Audio.master = ctx.createGain();
+      Audio.master.gain.value = 0.9;
+      Audio.master.connect(comp);
+      Audio.sfxGain = ctx.createGain();
+      Audio.sfxGain.gain.value = 0.5;
+      Audio.sfxGain.connect(Audio.master);
+      Audio.musicGain = ctx.createGain();
+      Audio.musicGain.gain.value = 0.22;
+      Audio.musicGain.connect(Audio.master);
+      // shared 1s noise buffer for hats/impacts
+      const len = ctx.sampleRate;
+      Audio.noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = Audio.noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      Audio.nextNoteTime = ctx.currentTime + 0.1;
+      Audio.timer = setInterval(Audio.schedule, 25);
+      document.addEventListener('visibilitychange', () => {
+        if (!Audio.ctx) return;
+        if (document.hidden) Audio.ctx.suspend();
+        else {
+          Audio.ctx.resume();
+          Audio.nextNoteTime = Audio.ctx.currentTime + 0.1;  // no note burst on return
+        }
+      });
     }
-    if (Audio.ctx.state !== 'running') Audio.ctx.resume();
+    if (Audio.ctx.state !== 'running'){
+      Audio.ctx.resume();
+      // belt-and-braces silent buffer for older iOS
+      const b = Audio.ctx.createBufferSource();
+      b.buffer = Audio.ctx.createBuffer(1, 1, 22050);
+      b.connect(Audio.ctx.destination);
+      b.start(0);
+    }
+    if (Audio.pendingTrack){
+      Audio.currentTrack = TRACKS[Audio.pendingTrack] || null;
+      Audio.pendingTrack = null;
+      Audio.step = 0;
+    }
   },
-  sfx(name){ /* filled in later milestone */ },
-  music(name){ /* filled in later milestone */ },
+  music(name){
+    if (!Audio.ctx){ Audio.pendingTrack = name; return; }
+    Audio.currentTrack = TRACKS[name] || null;
+    Audio.step = 0;
+    Audio.nextNoteTime = Math.max(Audio.nextNoteTime, Audio.ctx.currentTime + 0.05);
+  },
+  stopMusic(){ Audio.currentTrack = null; Audio.pendingTrack = null; },
+  schedule(){
+    const ctx = Audio.ctx;
+    if (!ctx || ctx.state !== 'running') return;
+    if (Audio.nextNoteTime < ctx.currentTime - 0.5) Audio.nextNoteTime = ctx.currentTime + 0.05;
+    while (Audio.nextNoteTime < ctx.currentTime + 0.12){
+      const tr = Audio.currentTrack;
+      const stepDur = tr ? (60 / tr.bpm) / 2 : 0.12;
+      if (tr) Audio.playStep(tr, Audio.step % 16, Audio.nextNoteTime, stepDur);
+      Audio.step++;
+      Audio.nextNoteTime += stepDur;
+    }
+  },
+  note(root, semi){ return root * Math.pow(2, semi / 12); },
+  playStep(tr, s, t, dur){
+    const ctx = Audio.ctx;
+    if (tr.bass[s] !== null && tr.bass[s] !== undefined){
+      const o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.value = Audio.note(tr.root, tr.bass[s]);
+      f.type = 'lowpass'; f.frequency.value = 600;
+      g.gain.setValueAtTime(0.30, t);
+      g.gain.exponentialRampToValueAtTime(0.01, t + dur * 0.9);
+      o.connect(f); f.connect(g); g.connect(Audio.musicGain);
+      o.start(t); o.stop(t + dur);
+    }
+    if (tr.lead[s] !== null && tr.lead[s] !== undefined){
+      for (const det of [0, 4]){
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'square';
+        o.frequency.value = Audio.note(tr.root, tr.lead[s]) * 2;
+        o.detune.value = det;
+        g.gain.setValueAtTime(0.07, t);
+        g.gain.exponentialRampToValueAtTime(0.01, t + dur * 0.8);
+        o.connect(g); g.connect(Audio.musicGain);
+        o.start(t); o.stop(t + dur);
+      }
+    }
+    if (tr.kick[s]){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(150, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+      g.gain.setValueAtTime(0.6, t);
+      g.gain.exponentialRampToValueAtTime(0.01, t + 0.13);
+      o.connect(g); g.connect(Audio.musicGain);
+      o.start(t); o.stop(t + 0.14);
+    }
+    if (tr.hat[s]){
+      Audio.noiseHit(t, 0.03, 'highpass', 6000, 0.08, Audio.musicGain);
+    }
+  },
+  /* --- synth helpers --- */
+  tone(type, f0, f1, t, dur, vol, dest){
+    const ctx = Audio.ctx;
+    if (!ctx) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.005, t + dur);
+    o.connect(g); g.connect(dest || Audio.sfxGain);
+    o.start(t); o.stop(t + dur + 0.02);
+  },
+  noiseHit(t, dur, filterType, freq, vol, dest, q){
+    const ctx = Audio.ctx;
+    if (!ctx || !Audio.noiseBuf) return;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = Audio.noiseBuf;
+    src.loop = true;
+    src.playbackRate.value = 0.9 + Math.random() * 0.2;
+    f.type = filterType; f.frequency.value = freq;
+    if (q) f.Q.value = q;
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.005, t + dur);
+    src.connect(f); f.connect(g); g.connect(dest || Audio.sfxGain);
+    src.start(t); src.stop(t + dur + 0.02);
+  },
+  sweep(t, dur, f0, f1, f2, vol){ // bandpass noise sweep (tornado)
+    const ctx = Audio.ctx;
+    if (!ctx || !Audio.noiseBuf) return;
+    const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    src.buffer = Audio.noiseBuf; src.loop = true;
+    f.type = 'bandpass'; f.Q.value = 5;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.55);
+    f.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.005, t + dur);
+    src.connect(f); f.connect(g); g.connect(Audio.sfxGain);
+    src.start(t); src.stop(t + dur + 0.02);
+  },
+  sfx(name){
+    const ctx = Audio.ctx;
+    if (!ctx || ctx.state !== 'running' || Audio.muted) return;
+    const t = ctx.currentTime;
+    switch (name){
+      case 'swing':      Audio.noiseHit(t, 0.06, 'bandpass', 1400, 0.12); break;
+      case 'swingHeavy': Audio.noiseHit(t, 0.09, 'bandpass', 700, 0.16); break;
+      case 'hit':
+        Audio.noiseHit(t, 0.06, 'bandpass', 900, 0.3);
+        Audio.tone('sine', 120, 60, t, 0.08, 0.35);
+        Audio.tone('square', 400, 120, t, 0.09, 0.12);
+        break;
+      case 'hitHeavy':
+        Audio.noiseHit(t, 0.11, 'bandpass', 400, 0.4);
+        Audio.tone('sine', 90, 40, t, 0.12, 0.45);
+        Audio.tone('square', 300, 80, t, 0.12, 0.15);
+        break;
+      case 'knockdown':
+        Audio.tone('sine', 200, 45, t, 0.25, 0.4);
+        Audio.noiseHit(t + 0.02, 0.18, 'lowpass', 500, 0.3);
+        break;
+      case 'tornado':
+        Audio.sweep(t, 0.65, 200, 2200, 300, 0.4);
+        Audio.tone('sawtooth', 80, 160, t, 0.5, 0.12);
+        break;
+      case 'jump':   Audio.tone('sine', 220, 520, t, 0.12, 0.18); break;
+      case 'land':   Audio.noiseHit(t, 0.05, 'lowpass', 300, 0.12); break;
+      case 'hurt':
+        Audio.tone('square', 300, 90, t, 0.14, 0.25);
+        Audio.noiseHit(t, 0.08, 'bandpass', 600, 0.2);
+        break;
+      case 'death':
+        Audio.tone('square', 400, 60, t, 0.5, 0.3);
+        Audio.tone('sawtooth', 200, 30, t, 0.6, 0.2);
+        break;
+      case 'pickup':
+        Audio.tone('square', 660, 660, t, 0.07, 0.15);
+        Audio.tone('square', 830, 830, t + 0.08, 0.1, 0.15);
+        break;
+      case 'meterFull':
+        [523, 659, 784, 1046].forEach((f, i) => Audio.tone('square', f, f, t + i * 0.06, 0.09, 0.14));
+        break;
+      case 'dud': Audio.tone('square', 140, 90, t, 0.12, 0.2); break;
+      case 'block': Audio.tone('square', 200, 180, t, 0.06, 0.18); break;
+      case 'waveStart':
+        Audio.tone('sawtooth', 300, 150, t, 0.22, 0.2);
+        Audio.tone('sawtooth', 306, 152, t, 0.22, 0.2);
+        break;
+      case 'go':
+        Audio.tone('square', 660, 660, t, 0.09, 0.18);
+        Audio.tone('square', 990, 990, t + 0.1, 0.14, 0.18);
+        break;
+      case 'levelClear':
+        [523, 659, 784, 1046, 1318].forEach((f, i) => Audio.tone('square', f, f, t + i * 0.09, 0.12, 0.16));
+        break;
+      case 'gameOver':
+        [392, 370, 349, 330].forEach((f, i) => Audio.tone('square', f, f, t + i * 0.18, 0.2, 0.18));
+        break;
+      case 'klaxon':
+        Audio.tone('square', 700, 700, t, 0.09, 0.2);
+        Audio.tone('square', 700, 700, t + 0.14, 0.09, 0.2);
+        break;
+      case 'bossSting':
+        Audio.tone('sawtooth', 82, 80, t, 0.8, 0.25);
+        Audio.tone('sawtooth', 98, 96, t, 0.8, 0.25);
+        Audio.tone('sine', 150, 40, t, 0.3, 0.5);
+        break;
+      case 'victory':
+        [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => Audio.tone('square', f, f, t + i * 0.11, 0.14, 0.16));
+        break;
+    }
+  },
 };
 
 /* ================================ FX ================================ */
@@ -452,7 +697,9 @@ class Player {
       Audio.sfx('jump');
     }
     if (!held.jump && this.vy < -4) this.vy = -4;
+    const wasAirborne = !this.grounded;
     moveAndCollide(this, level);
+    if (wasAirborne && this.grounded) Audio.sfx('land');
   }
 }
 
