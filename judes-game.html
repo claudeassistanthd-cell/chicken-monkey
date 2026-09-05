@@ -769,6 +769,12 @@ class Enemy {
   }
   update(level, player){
     this.stateTick++;
+    if (this.y > CONFIG.VIEW_H + 100 && !this.dead){ // knocked off the roof
+      this.dead = true;
+      Tokens.release(this);
+      if (this.state !== 'DYING') Game.addScore(this.def.score);
+      return;
+    }
     if (this.invuln > 0) this.invuln--;
     if (this.flash > 0) this.flash--;
     if (this.tokenCooldown > 0) this.tokenCooldown--;
@@ -978,23 +984,81 @@ const LEVELS = [
     hazards: [], gaps: [],
     boss: null,
   },
+  {
+    name: 'ROOFTOPS', music: 'rooftop', bg: 'rooftop', width: 3600, floorY: 470,
+    vertCam: true, deriveGaps: true,
+    palette: {
+      sky0: '#0d0930', sky1: '#4a1a66', ground: '#1e1533', groundTop: '#38295a',
+      roof: '#2c2144', face: '#191026', far: '#100a20', mid: '#180f2c',
+      neon: ['#7dfdfe', '#ff4fd8', '#9dff57', '#ffd94f'],
+    },
+    solids: [
+      { x: -40,  y: 470, w: 540, h: 200 },
+      { x: 590,  y: 440, w: 510, h: 230 },
+      { x: 1200, y: 470, w: 550, h: 200 },
+      { x: 1840, y: 430, w: 560, h: 240 },
+      { x: 2510, y: 460, w: 540, h: 210 },
+      { x: 3140, y: 440, w: 500, h: 230 },
+    ],
+    platforms: [
+      { x: 810,  y: 392, w: 84, kind: 'ac' },
+      { x: 1480, y: 414, w: 74, kind: 'crate' },
+      { x: 2080, y: 378, w: 84, kind: 'ac' },
+      { x: 2780, y: 404, w: 74, kind: 'crate' },
+    ],
+    pickups: [
+      { x: 1420, y: 470, kind: 'kebab' },
+      { x: 2200, y: 430, kind: 'drink' },
+      { x: 2920, y: 460, kind: 'kebab' },
+    ],
+    waves: [
+      { triggerX: 700,  enemies: [ { type: 'elite', from: 'right', delay: 0 } ] },
+      { triggerX: 1330, enemies: [ { type: 'suit', from: 'right', delay: 0 }, { type: 'suit', from: 'left', delay: 40 }, { type: 'elite', from: 'right', delay: 100 } ] },
+      { triggerX: 1980, enemies: [ { type: 'suit', from: 'right', delay: 0 }, { type: 'suit', from: 'right', delay: 55 }, { type: 'elite', from: 'left', delay: 110 } ] },
+      { triggerX: 2640, enemies: [ { type: 'suit', from: 'left', delay: 0 }, { type: 'suit', from: 'right', delay: 45 }, { type: 'elite', from: 'right', delay: 95 }, { type: 'suit', from: 'drop', delay: 150 } ] },
+    ],
+    strays: [
+      { triggerX: 950,  type: 'suit', from: 'right' },
+      { triggerX: 1620, type: 'suit', from: 'left' },
+      { triggerX: 3260, type: 'elite', from: 'right' },
+    ],
+    hazards: [], gaps: [],
+    boss: null,
+  },
 ];
 
 /* ============================== Camera ============================== */
 const Camera = {
   x: 0, y: 0,
   minX: 0, maxX: 99999,
+  lastGroundY: 470,
   reset(level){
     Camera.x = 0; Camera.y = 0;
     Camera.minX = 0; Camera.maxX = level.width - CONFIG.VIEW_W;
+    Camera.lastGroundY = level.floorY;
   },
   update(player){
     const target = player.x - CONFIG.VIEW_W / 2 + player.facing * 80;
     Camera.x = Utils.lerp(Camera.x, Utils.clamp(target, Camera.minX, Camera.maxX), 0.08);
+    if (Game.level && Game.level.vertCam){
+      if (player.grounded) Camera.lastGroundY = player.y;
+      const ty = Utils.clamp((Camera.lastGroundY - Game.level.floorY) * 0.5, -90, 10);
+      Camera.y = Utils.lerp(Camera.y, ty, 0.05);
+    }
   },
   get ix(){ return Math.round(Camera.x); },
   get iy(){ return Math.round(Camera.y); },
 };
+/* nearest standable spot on a solid for spawns/respawns */
+function snapToSolid(level, x, pad){
+  let best = null, bestD = Infinity;
+  for (const s of level.solids){
+    const cx = Utils.clamp(x, s.x + pad, s.x + s.w - pad);
+    const d = Math.abs(cx - x);
+    if (d < bestD){ bestD = d; best = { x: cx, y: s.y }; }
+  }
+  return best || { x, y: level.floorY };
+}
 
 /* ================================ BG ================================ */
 /* Parallax layers are baked once per level to offscreen canvases; the
@@ -1147,7 +1211,75 @@ const BG = {
       BG.layers.push({ canvas: c, factor: f, y: 0 });
     }
   },
-  bakeRooftop(level, W, H, pal){ /* level 2 milestone */ },
+  bakeRooftop(level, W, H, pal){
+    // far low skyline with a city-glow horizon (0.1)
+    {
+      const f = 0.1, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
+      const glow = g.createLinearGradient(0, 300, 0, 480);
+      glow.addColorStop(0, 'rgba(255,79,216,0)');
+      glow.addColorStop(1, 'rgba(255,79,216,0.25)');
+      g.fillStyle = glow;
+      g.fillRect(0, 300, c.width, 180);
+      // moon
+      g.save();
+      g.shadowColor = '#e8e8ff'; g.shadowBlur = 30;
+      g.fillStyle = '#e8e8f8';
+      g.fillRect(180, 50, 38, 38);
+      g.restore();
+      g.fillStyle = '#c8c8dd';
+      g.fillRect(190, 60, 7, 7);
+      let x = 0;
+      while (x < c.width){
+        const bw = 50 + Utils.rand() * 80, bh = 60 + Utils.rand() * 120;
+        g.fillStyle = pal.far;
+        g.fillRect(x, 480 - bh, bw, bh);
+        g.fillStyle = 'rgba(255,217,79,0.3)';
+        for (let wx = x + 5; wx < x + bw - 6; wx += 12)
+          if (Utils.rand() < 0.25) g.fillRect(wx, 480 - bh + 8 + Utils.rand() * (bh - 20), 3, 5);
+        x += bw + 6 + Utils.rand() * 14;
+      }
+      BG.layers.push({ canvas: c, factor: f, y: 0 });
+    }
+    // mid towers with neon + red aircraft beacons (0.35)
+    {
+      const f = 0.35, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
+      let x = 0, signI = 0;
+      while (x < c.width){
+        const bw = 100 + Utils.rand() * 120, bh = 140 + Utils.rand() * 200;
+        const top = 500 - bh;
+        g.fillStyle = pal.mid;
+        g.fillRect(x, top, bw, bh + 60);
+        g.fillStyle = 'rgba(125,253,254,0.1)';
+        for (let wx = x + 8; wx < x + bw - 10; wx += 16)
+          for (let wy = top + 12; wy < 490; wy += 22)
+            if (Utils.rand() < 0.28) g.fillRect(wx, wy, 7, 9);
+        if (Utils.rand() < 0.5){                            // rooftop neon billboard
+          const neon = pal.neon[signI++ % pal.neon.length];
+          g.save();
+          g.shadowColor = neon; g.shadowBlur = 14;
+          g.fillStyle = neon;
+          g.fillRect(x + bw * 0.2, top - 26, bw * 0.55, 20);
+          g.restore();
+          g.fillStyle = '#0b0716';
+          for (let i = 0; i < 4; i++) g.fillRect(x + bw * 0.2 + 6 + i * (bw * 0.55 - 10) / 4, top - 21, 6, 10);
+          g.fillStyle = 'rgba(20,20,40,0.9)';
+          g.fillRect(x + bw * 0.3, top - 6, 4, 6);
+          g.fillRect(x + bw * 0.6, top - 6, 4, 6);
+        }
+        if (Utils.rand() < 0.35){                           // red beacon
+          g.save();
+          g.shadowColor = '#ff3344'; g.shadowBlur = 10;
+          g.fillStyle = '#ff3344';
+          g.fillRect(x + bw / 2 - 2, top - 12, 5, 5);
+          g.restore();
+          g.fillStyle = '#222';
+          g.fillRect(x + bw / 2 - 1, top - 7, 2, 7);
+        }
+        x += bw + 10 + Utils.rand() * 40;
+      }
+      BG.layers.push({ canvas: c, factor: f, y: 0 });
+    }
+  },
   bakeTrain(level, W, H, pal){ /* level 3 milestone */ },
   drawSky(ctx, level){
     const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H, pal = level.palette;
@@ -1177,8 +1309,16 @@ const BG = {
 };
 
 /* Platform + ground art */
+function platformBottom(level, p){
+  const cx = p.x + p.w / 2;
+  let best = null;
+  for (const s of level.solids){
+    if (cx >= s.x && cx <= s.x + s.w && s.y >= p.y) best = best === null ? s.y : Math.min(best, s.y);
+  }
+  return best !== null ? best : (level.floorY || 470);
+}
 function drawPlatform(ctx, p, level){
-  const bottom = level.floorY !== undefined ? level.floorY : 470;
+  const bottom = platformBottom(level, p);
   const h = bottom - p.y;
   if (p.kind === 'dumpster'){
     ctx.fillStyle = '#0f2e24';
@@ -1225,6 +1365,46 @@ function drawPlatform(ctx, p, level){
 function drawGround(ctx, level, camX){
   const pal = level.palette;
   const W = CONFIG.VIEW_W;
+  if (level.bg === 'rooftop'){
+    for (const s of level.solids){
+      // building face all the way down, with lit windows
+      ctx.fillStyle = pal.face;
+      ctx.fillRect(s.x, s.y + 8, s.w, 660 - s.y);
+      for (let wx = s.x + 14; wx < s.x + s.w - 18; wx += 30){
+        for (let wy = s.y + 26; wy < 640; wy += 34){
+          const r = ((wx * 31 + wy * 17) * 2654435761 % 100) / 100;
+          if (r < 0.22){ ctx.fillStyle = 'rgba(255,217,79,0.30)'; ctx.fillRect(wx, wy, 12, 14); }
+          else if (r < 0.34){ ctx.fillStyle = 'rgba(125,253,254,0.18)'; ctx.fillRect(wx, wy, 12, 14); }
+        }
+      }
+      // roof slab + lip
+      ctx.fillStyle = pal.roof;
+      ctx.fillRect(s.x, s.y, s.w, 10);
+      ctx.fillStyle = pal.groundTop;
+      ctx.fillRect(s.x, s.y, s.w, 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(s.x, s.y + 10, 4, 660 - s.y);            // left edge shading
+      ctx.fillRect(s.x + s.w - 4, s.y + 10, 4, 660 - s.y);  // right edge shading
+      // deterministic roof props: tank or antenna
+      const r = (s.x * 2654435761 % 89) / 89;
+      if (r < 0.5){
+        const tx = s.x + s.w * 0.72;
+        ctx.fillStyle = '#141022';
+        ctx.fillRect(tx, s.y - 34, 34, 26);                 // water tank
+        ctx.fillRect(tx + 4, s.y - 8, 5, 8);
+        ctx.fillRect(tx + 25, s.y - 8, 5, 8);
+        ctx.fillStyle = '#1e1838';
+        ctx.fillRect(tx - 2, s.y - 38, 38, 6);
+      } else {
+        const ax = s.x + s.w * 0.8;
+        ctx.fillStyle = '#141022';
+        ctx.fillRect(ax, s.y - 46, 3, 46);                  // antenna
+        ctx.fillRect(ax - 8, s.y - 34, 19, 2);
+        ctx.fillRect(ax - 5, s.y - 22, 13, 2);
+      }
+    }
+    return;
+  }
   for (const s of level.solids){
     ctx.fillStyle = pal.ground;
     ctx.fillRect(s.x, s.y, s.w, s.h);
@@ -1448,6 +1628,16 @@ const Game = {
     Game.hazardActive = false;
     Game.waveIndex = 0; Game.activeWave = null; Game.goArrow = 0; Game.strayIdx = 0;
     Game.levelTicks = 0;
+    if (Game.level.deriveGaps){
+      Game.level.gaps = [];
+      const sorted = [...Game.level.solids].sort((a, b) => a.x - b.x);
+      for (let k = 0; k < sorted.length - 1; k++){
+        const a = sorted[k], b = sorted[k + 1];
+        if (b.x > a.x + a.w){
+          Game.level.gaps.push({ x: a.x + a.w, w: b.x - (a.x + a.w), respawnX: a.x + a.w - 50 });
+        }
+      }
+    }
     Tokens.reset(CONFIG.TOKENS[i]);
     Camera.reset(Game.level);
     BG.bake(Game.level);
@@ -1455,14 +1645,49 @@ const Game = {
     Game.setState('LEVEL_INTRO');
   },
   spawnEnemy(type, from){
-    const camX = Camera.ix;
-    let x;
-    if (from === 'left') x = camX - 30;
-    else if (from === 'drop') x = camX + 200 + Utils.rand() * (CONFIG.VIEW_W - 400);
-    else x = camX + CONFIG.VIEW_W + 30;
-    const e = new Enemy(type, x, { from: from === 'drop' ? 'drop' : undefined });
+    const camX = Camera.ix, W = CONFIG.VIEW_W;
+    let e;
+    if (Game.level.gaps.length){
+      // gap levels: every spawn drops onto the player's own platform so
+      // no fight is ever stranded across a gap behind the camera lock
+      const p = Game.player;
+      const ps = Game.level.solids.find(s => p.x >= s.x && p.x <= s.x + s.w) || Game.level.solids[0];
+      const lo = Math.max(ps.x + 30, camX + 60), hi = Math.min(ps.x + ps.w - 30, camX + W - 60);
+      let x;
+      if (hi <= lo) x = Utils.clamp(p.x + (from === 'left' ? -140 : 140), ps.x + 30, ps.x + ps.w - 30);
+      else if (from === 'left') x = lo + Utils.rand() * Math.max(20, (hi - lo) * 0.3);
+      else if (from === 'right') x = hi - Utils.rand() * Math.max(20, (hi - lo) * 0.3);
+      else x = lo + Utils.rand() * (hi - lo);
+      e = new Enemy(type, x, { from: 'drop' });
+    } else {
+      let x;
+      if (from === 'left') x = camX - 30;
+      else if (from === 'drop') x = camX + 200 + Utils.rand() * (CONFIG.VIEW_W - 400);
+      else x = camX + CONFIG.VIEW_W + 30;
+      e = new Enemy(type, x, { from: from === 'drop' ? 'drop' : undefined });
+    }
     Game.enemies.push(e);
     return e;
+  },
+  onPlayerFall(){
+    const p = Game.player;
+    p.hp -= CONFIG.FALL_DMG;
+    p.vx = 0; p.vy = 0; p.hitstun = 0; p.attack = null;
+    FX.shake(5);
+    Audio.sfx('knockdown');
+    const gap = Game.level.gaps.find(g => p.x >= g.x - 30 && p.x <= g.x + g.w + 30);
+    let rx = gap ? gap.respawnX : Camera.minX + 60;
+    rx = Utils.clamp(rx, Camera.minX + 20, Camera.maxX + CONFIG.VIEW_W - 20);
+    const snap = snapToSolid(Game.level, rx, 30);
+    p.x = snap.x; p.y = snap.y;
+    p.invuln = 60;
+    Camera.x = Utils.clamp(p.x - CONFIG.VIEW_W / 2, Camera.minX, Camera.maxX);
+    FX.text(p.x, p.y - 90, '-' + CONFIG.FALL_DMG + ' HP', '#ff6a6a');
+    if (p.hp <= 0){ p.hp = 0; Game.onPlayerDeath(); }
+  },
+  testLevel(i){ // verification hook
+    if (!Game.player){ Game.score = 0; Game.lives = CONFIG.PLAYER.lives; Game.player = new Player(); }
+    Game.loadLevel(i);
   },
   aliveEnemies(){
     return Game.enemies.filter(e => !e.dead && e.state !== 'DYING').length;
@@ -1545,6 +1770,8 @@ const Game = {
         Game.player.update(Game.level);
         // keep the player inside the scroll region
         Game.player.x = Utils.clamp(Game.player.x, Camera.minX + 16, Camera.maxX + CONFIG.VIEW_W - 16);
+        if (Game.player.y > CONFIG.VIEW_H + 70) Game.onPlayerFall();
+        if (Game.state !== 'PLAYING') break;
         for (const e of Game.enemies) e.update(Game.level, Game.player);
         for (let i = Game.enemies.length - 1; i >= 0; i--){
           if (Game.enemies[i].dead) Game.enemies.splice(i, 1);
