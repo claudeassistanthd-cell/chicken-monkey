@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Jude's Game</title>
+<style>
+html,body{
+  margin:0;padding:0;height:100%;overflow:hidden;background:#0b0716;
+  overscroll-behavior:none;touch-action:none;
+  -webkit-user-select:none;user-select:none;
+  -webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+}
+canvas{display:block;touch-action:none;position:absolute;left:0;top:0;}
+#nameInput{
+  position:absolute;display:none;z-index:10;
+  background:#1a1030;color:#7dfdfe;border:3px solid #ff4fd8;border-radius:8px;
+  font-family:"Courier New",monospace;font-weight:bold;text-align:center;
+  outline:none;letter-spacing:2px;
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<input id="nameInput" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="YOUR NAME">
+<script>
+'use strict';
+/* ============================================================
+   JUDE'S GAME - Jimmy Crinkle vs the Suit Guys
+   Single-file 2D beat-em-up. Canvas + Web Audio, no externals.
+   Sections: CONFIG / Utils / Audio / Input / FX / ATTACKS /
+   Entities / LEVELS / Camera / BG / HUD / Game / Main loop
+   ============================================================ */
+
+/* ============================== CONFIG ============================== */
+const CONFIG = {
+  VIEW_W: 960, VIEW_H: 540,
+  GRAVITY: 0.55, JUMP_V: -11.5, MOVE_SPEED: 3.2,
+  PLAYER: { hp: 100, lives: 3, invulnAfterHit: 45, w: 28, h: 56, duckH: 34 },
+  METER: { perHit: 11, max: 100 },
+  ENEMIES: {
+    suit:  { hp: 30, dmg: 8,  speed: 1.6, windup: 24, attackRange: 46, score: 100, w: 28, h: 56 },
+    elite: { hp: 50, dmg: 12, speed: 2.3, windup: 16, attackRange: 50, score: 250, w: 28, h: 58, blockFirstHit: true },
+  },
+  BOSS: { hp: 300, score: 2000, w: 42, h: 82, hay: 20, charge: 14, rushJab: 8, slam: 12 },
+  TOKENS: [1, 2, 2],           // max simultaneous attackers per level
+  MAXONSCREEN: [3, 4, 5],
+  FALL_DMG: 15, SIGN_DMG: 20,
+  PICKUPS: { kebab: { hp: 30 }, drink: { hp: 15, meter: 25 } },
+};
+
+/* ============================== Utils =============================== */
+const Utils = {
+  clamp(v, a, b){ return v < a ? a : (v > b ? b : v); },
+  lerp(a, b, t){ return a + (b - a) * t; },
+  aabb(a, b){ return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; },
+  _seed: 1,
+  seed(v){ Utils._seed = (v >>> 0) || 1; },
+  rand(){ // LCG - deterministic under ?test for the verify harness
+    Utils._seed = (Utils._seed * 1664525 + 1013904223) >>> 0;
+    return Utils._seed / 4294967296;
+  },
+  randRange(a, b){ return a + Utils.rand() * (b - a); },
+};
+const TEST_MODE = location.search.indexOf('test') >= 0;
+Utils.seed(TEST_MODE ? 12345 : (Date.now() & 0xffffffff));
+
+/* ============================== Input =============================== */
+const Input = {
+  held:    { left:false, right:false, down:false, jump:false, punch:false, kick:false, tornado:false },
+  pressed: { left:false, right:false, down:false, jump:false, punch:false, kick:false, tornado:false, pause:false, confirm:false },
+  touchUIVisible: ('maxTouchPoints' in navigator) && navigator.maxTouchPoints > 0,
+  keyMap: {
+    'ArrowLeft':'left','KeyA':'left',
+    'ArrowRight':'right','KeyD':'right',
+    'ArrowDown':'down','KeyS':'down',
+    'ArrowUp':'jump','KeyW':'jump','Space':'jump',
+    'KeyJ':'punch','KeyK':'kick','KeyL':'tornado',
+  },
+  press(action){
+    if (action in Input.held) Input.held[action] = true;
+    if (action in Input.pressed) Input.pressed[action] = true;
+  },
+  release(action){
+    if (action in Input.held) Input.held[action] = false;
+  },
+  consumePressed(){
+    for (const k in Input.pressed) Input.pressed[k] = false;
+  },
+  clearHeld(){
+    for (const k in Input.held) Input.held[k] = false;
+  },
+  init(){
+    window.addEventListener('keydown', e => {
+      if (e.repeat) return;
+      Audio.unlock();
+      const a = Input.keyMap[e.code];
+      if (a){ Input.press(a); e.preventDefault(); }
+      if (e.code === 'KeyP'){ Input.pressed.pause = true; e.preventDefault(); }
+      if (e.code === 'Enter'){ Input.pressed.confirm = true; }
+      if (e.code === 'Space' || e.code === 'KeyJ') Input.pressed.confirm = true;
+    });
+    window.addEventListener('keyup', e => {
+      const a = Input.keyMap[e.code];
+      if (a) Input.release(a);
+    });
+    window.addEventListener('blur', Input.clearHeld);
+  },
+};
+
+/* ============================== Audio =============================== */
+/* Fleshed out in the audio milestone; unlock stub is needed from day one
+   so the first gesture can create/resume the context. */
+const Audio = {
+  ctx: null,
+  unlock(){
+    if (!Audio.ctx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      Audio.ctx = new AC();
+    }
+    if (Audio.ctx.state !== 'running') Audio.ctx.resume();
+  },
+  sfx(name){ /* filled in later milestone */ },
+  music(name){ /* filled in later milestone */ },
+};
+
+/* ============================== Game ================================ */
+const Game = {
+  state: 'TITLE',
+  tick: 0,
+  score: 0,
+  update(){
+    Game.tick++;
+    switch (Game.state){
+      case 'TITLE':
+        if (Input.pressed.confirm){
+          Game.state = 'PLAYING';
+        }
+        break;
+      case 'PLAYING':
+        if (Input.pressed.pause) Game.state = 'PAUSED';
+        break;
+      case 'PAUSED':
+        if (Input.pressed.pause || Input.pressed.confirm) Game.state = 'PLAYING';
+        break;
+    }
+    Input.consumePressed();
+  },
+  draw(ctx){
+    const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H;
+    ctx.fillStyle = '#140a26';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    if (Game.state === 'TITLE'){
+      ctx.fillStyle = '#ff4fd8';
+      ctx.font = 'bold 64px "Courier New", monospace';
+      ctx.fillText("JUDE'S GAME", W/2, 160);
+      ctx.fillStyle = '#7dfdfe';
+      ctx.font = 'bold 22px "Courier New", monospace';
+      ctx.fillText('JIMMY CRINKLE VS THE SUIT GUYS', W/2, 205);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '18px "Courier New", monospace';
+      const blink = (Game.tick % 60) < 40;
+      if (blink) ctx.fillText('PRESS ENTER OR TAP TO START', W/2, 420);
+    } else if (Game.state === 'PLAYING'){
+      ctx.fillStyle = '#7dfdfe';
+      ctx.font = 'bold 28px "Courier New", monospace';
+      ctx.fillText('LEVEL 1 COMING SOON', W/2, H/2);
+    } else if (Game.state === 'PAUSED'){
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 40px "Courier New", monospace';
+      ctx.fillText('PAUSED', W/2, H/2);
+    }
+    ctx.textAlign = 'left';
+  },
+};
+
+/* ============================ Main loop ============================= */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let viewScale = 1, viewOffX = 0, viewOffY = 0;
+
+function resize(){
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  canvas.style.width = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  const scale = Math.min(cssW / CONFIG.VIEW_W, cssH / CONFIG.VIEW_H);
+  viewScale = scale;
+  viewOffX = (cssW - CONFIG.VIEW_W * scale) / 2;
+  viewOffY = (cssH - CONFIG.VIEW_H * scale) / 2;
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => { setTimeout(resize, 250); });
+resize();
+
+const STEP = 1000 / 60;
+let acc = 0, last = performance.now();
+function frame(now){
+  acc += Math.min(now - last, 100);
+  last = now;
+  while (acc >= STEP){
+    Game.update();
+    acc -= STEP;
+  }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  ctx.setTransform(viewScale * dpr, 0, 0, viewScale * dpr, viewOffX * dpr, viewOffY * dpr);
+  ctx.imageSmoothingEnabled = false;
+  Game.draw(ctx);
+  requestAnimationFrame(frame);
+}
+
+Input.init();
+window.__game = { Game, Input, CONFIG, Utils };
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
