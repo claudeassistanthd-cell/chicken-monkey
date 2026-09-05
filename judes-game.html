@@ -98,13 +98,13 @@ const Input = {
       if (e.repeat) return;
       Audio.unlock();
       if (e.target && e.target.id === 'nameInput'){    // typing a name, not fighting
-        if (e.code === 'Enter'){ Input.pressed.confirm = true; e.target.blur(); }
+        if (e.key === 'Enter'){ Input.pressed.confirm = true; e.target.blur(); }
         return;
       }
       const a = Input.keyMap[e.code];
       if (a){ Input.press(a); e.preventDefault(); }
       if (e.code === 'KeyP'){ Input.pressed.pause = true; e.preventDefault(); }
-      if (e.code === 'Enter'){ Input.pressed.confirm = true; }
+      if (e.key === 'Enter'){ Input.pressed.confirm = true; }
       if (e.code === 'Space' || e.code === 'KeyJ') Input.pressed.confirm = true;
     });
     window.addEventListener('gesturestart', e => e.preventDefault());
@@ -112,7 +112,7 @@ const Input = {
       const a = Input.keyMap[e.code];
       if (a) Input.release(a);
     });
-    window.addEventListener('blur', Input.clearHeld);
+    window.addEventListener('blur', () => { Input.clearHeld(); touchMap.clear(); });
     window.addEventListener('pointerdown', () => Audio.unlock());
     window.addEventListener('touchend', () => Audio.unlock());
   },
@@ -570,7 +570,7 @@ const Tokens = {
   },
   effectiveMax(){
     if (Game.hazardActive) return 1;                 // ducking a sign: ease off
-    if (Game.boss && Game.boss.state === 'WINDUP') return 1;
+    if (Game.boss && !Game.boss.dead && Game.boss.state.endsWith('_WINDUP')) return 1;
     return Tokens.max;
   },
 };
@@ -962,6 +962,15 @@ class Boss {
       FX.stop(45);                                  // slow-mo finish
       FX.shake(10);
       Audio.sfx('knockdown');
+      // the remaining suits crumble with their boss - no cheap deaths after the win
+      for (const e of Game.enemies){
+        if (!e.dead && e.state !== 'DYING'){
+          e.hp = 0;
+          e.setState('DYING');
+          Tokens.release(e);
+          Game.addScore(e.def.score, e.x, e.y - e.h - 10);
+        }
+      }
       return;
     }
     if (this.phase === 1 && this.hp <= this.maxHp / 2){
@@ -1692,11 +1701,16 @@ const BG = {
       BG.layers.push({ canvas: c, factor: 0.6, y: 0, wrap: true, scroll: 11 });
     }
   },
+  skyGrad: null, skyGradLevel: null,
   drawSky(ctx, level){
     const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H, pal = level.palette;
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, pal.sky0); grad.addColorStop(1, pal.sky1);
-    ctx.fillStyle = grad;
+    if (BG.skyGradLevel !== level){        // build the gradient once per level
+      BG.skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+      BG.skyGrad.addColorStop(0, pal.sky0);
+      BG.skyGrad.addColorStop(1, pal.sky1);
+      BG.skyGradLevel = level;
+    }
+    ctx.fillStyle = BG.skyGrad;
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = '#ffffff';
     for (const s of BG.stars){
@@ -1787,6 +1801,7 @@ function drawGround(ctx, level, camX){
   const W = CONFIG.VIEW_W;
   if (level.bg === 'train'){
     for (const s of level.solids){
+      if (s.x + s.w < camX - 80 || s.x > camX + W + 80) continue;
       const isEngine = s.w > 400;
       // carriage body
       ctx.fillStyle = isEngine ? '#2c2340' : pal.body;
@@ -1827,6 +1842,7 @@ function drawGround(ctx, level, camX){
   }
   if (level.bg === 'rooftop'){
     for (const s of level.solids){
+      if (s.x + s.w < camX - 80 || s.x > camX + W + 80) continue;
       // building face all the way down, with lit windows
       ctx.fillStyle = pal.face;
       ctx.fillRect(s.x, s.y + 8, s.w, 660 - s.y);
@@ -1866,6 +1882,7 @@ function drawGround(ctx, level, camX){
     return;
   }
   for (const s of level.solids){
+    if (s.x + s.w < camX - 80 || s.x > camX + W + 80) continue;
     ctx.fillStyle = pal.ground;
     ctx.fillRect(s.x, s.y, s.w, s.h);
     ctx.fillStyle = pal.groundTop || pal.ground;
@@ -2798,6 +2815,12 @@ function toGame(cx, cy){
 /* ========================= Touch controls =========================== */
 const touchMap = new Map();
 const MOVE_ACTIONS = { left: 1, right: 1, down: 1 };
+/* Two fingers can press the same button (kids drum-tap); only release
+   the action when no remaining touch still holds it. */
+function releaseIfUnheld(action){
+  for (const a of touchMap.values()) if (a === action) return;
+  Input.release(action);
+}
 function handleTouchStart(e){
   e.preventDefault();
   Audio.unlock();
@@ -2828,9 +2851,10 @@ function handleTouchMove(e){
     const b = HUD.hit(g.x, g.y);
     const next = (b && MOVE_ACTIONS[b.action]) ? b.action : null;
     if (next !== cur){
-      if (cur) Input.release(cur);
-      if (next){ touchMap.set(t.identifier, next); Input.press(next); }
+      if (next) touchMap.set(t.identifier, next);
       else touchMap.delete(t.identifier);
+      if (cur) releaseIfUnheld(cur);
+      if (next) Input.press(next);
     }
   }
 }
@@ -2839,7 +2863,7 @@ function handleTouchEnd(e){
   Audio.unlock();
   for (const t of e.changedTouches){
     const cur = touchMap.get(t.identifier);
-    if (cur !== undefined){ Input.release(cur); touchMap.delete(t.identifier); }
+    if (cur !== undefined){ touchMap.delete(t.identifier); releaseIfUnheld(cur); }
   }
   if (e.type === 'touchcancel' && e.touches.length === 0){
     Input.clearHeld();
