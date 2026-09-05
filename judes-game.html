@@ -44,10 +44,13 @@ const CONFIG = {
   ENEMIES: {
     suit:  { hp: 30, dmg: 8,  speed: 1.6, windup: 24, attackRange: 46, score: 100, w: 28, h: 56 },
     elite: { hp: 50, dmg: 12, speed: 2.3, windup: 16, attackRange: 50, score: 250, w: 28, h: 58, blockFirstHit: true },
+    gator: { hp: 26, dmg: 10, speed: 2.0, windup: 20, attackRange: 64, score: 150, w: 56, h: 34, lunge: true,
+             atkBox: { dx: 12, dy: -30, w: 46, h: 26 } },
   },
   BOSS: { hp: 220, score: 2000, w: 42, h: 82, hay: 20, charge: 14, rushJab: 8, slam: 12 },
-  TOKENS: [1, 2, 2],           // max simultaneous attackers per level
-  MAXONSCREEN: [3, 4, 5],
+  TOKENS: [1, 2, 2, 2, 2, 0],  // max simultaneous attackers per level
+  MAXONSCREEN: [3, 4, 5, 4, 5, 0],
+  EXTRA_LIFE_EVERY: 10000, MAX_LIVES: 5,
   FALL_DMG: 15, SIGN_DMG: 20,
   PICKUPS: { kebab: { hp: 30 }, drink: { hp: 15, meter: 25 } },
 };
@@ -144,6 +147,13 @@ const TRACKS = {
     lead: [null, null, 12, null, null, 15, null, null, null, null, 17, null, 15, null, 12, null],
     kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0],
     hat:  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  },
+  sewer: {
+    bpm: 92, root: 43,
+    bass: [0, null, null, 0, null, null, 3, null, 0, null, null, -2, null, null, 1, null],
+    lead: [null, null, null, 12, null, null, null, null, null, null, 15, null, null, 12, null, null],
+    kick: [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+    hat:  [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
   },
   boss: {
     bpm: 150, root: 41,
@@ -781,7 +791,7 @@ class Enemy {
     }
   }
   attackHitbox(){
-    return attackBox(this, { dx: 8, dy: -46, w: 38, h: 18 });
+    return attackBox(this, this.def.atkBox || { dx: 8, dy: -46, w: 38, h: 18 });
   }
   update(level, player){
     this.stateTick++;
@@ -847,14 +857,18 @@ class Enemy {
         }
         break;
       case 'ATTACK': {
-        this.vx = 0;
+        const lunging = this.def.lunge;
+        // gators launch forward with the bite
+        this.vx = (lunging && this.stateTick <= 8) ? this.facing * 4 : 0;
+        if (lunging && this.grounded && !groundAhead(this, level, 14)) this.vx = 0;
         moveAndCollide(this, level);
-        if (this.stateTick > 2 && this.stateTick <= 6 && player.invuln <= 0 && player.hp > 0){
+        const lastHitTick = lunging ? 8 : 6;
+        if (this.stateTick > 2 && this.stateTick <= lastHitTick && player.invuln <= 0 && player.hp > 0){
           if (Utils.aabb(this.attackHitbox(), player.hurtbox)){
             player.takeHit(this.def.dmg, this.facing * 3, -2);
           }
         }
-        if (this.stateTick >= 10){
+        if (this.stateTick >= (lunging ? 12 : 10)){
           Tokens.release(this);
           this.setState('RECOVER');
         }
@@ -1381,6 +1395,38 @@ const LEVELS = [
     gaps: [],
     boss: { arenaX: 3020, lockX: 2940 },
   },
+  {
+    name: 'THE SEWERS', music: 'sewer', bg: 'sewer', width: 3400, floorY: 470,
+    palette: {
+      sky0: '#04120c', sky1: '#0d3020', ground: '#1a2a24', groundTop: '#2f4a3e',
+      wall: '#12241c', wallDark: '#0b1811', far: '#071510', mid: '#0d1f17',
+      neon: ['#3dfc7e', '#7dfdfe'],
+    },
+    solids: [ { x: -40, y: 470, w: 3480, h: 90 } ],
+    platforms: [
+      { x: 720,  y: 406, w: 104, kind: 'pipe' },
+      { x: 1340, y: 412, w: 74,  kind: 'crate' },
+      { x: 2040, y: 406, w: 104, kind: 'pipe' },
+      { x: 2660, y: 412, w: 74,  kind: 'crate' },
+    ],
+    pickups: [
+      { x: 1160, y: 470, kind: 'kebab' },
+      { x: 2260, y: 470, kind: 'drink' },
+      { x: 3060, y: 470, kind: 'kebab' },
+    ],
+    waves: [
+      { triggerX: 500,  enemies: [ { type: 'gator', from: 'right', delay: 0 }, { type: 'gator', from: 'left', delay: 60 } ] },
+      { triggerX: 1420, enemies: [ { type: 'gator', from: 'right', delay: 0 }, { type: 'gator', from: 'right', delay: 55 }, { type: 'suit', from: 'drop', delay: 115 } ] },
+      { triggerX: 2720, enemies: [ { type: 'gator', from: 'left', delay: 0 }, { type: 'gator', from: 'right', delay: 45 }, { type: 'elite', from: 'drop', delay: 100 }, { type: 'gator', from: 'right', delay: 155 } ] },
+    ],
+    strays: [
+      { triggerX: 1000, type: 'gator', from: 'right' },
+      { triggerX: 1900, type: 'suit', from: 'left' },
+      { triggerX: 2420, type: 'gator', from: 'right' },
+    ],
+    hazards: [], gaps: [],
+    boss: null,
+  },
 ];
 
 /* ============================== Camera ============================== */
@@ -1438,131 +1484,92 @@ const BG = {
     if (kind === 'alley') BG.bakeAlley(level, W, H, pal);
     else if (kind === 'rooftop') BG.bakeRooftop(level, W, H, pal);
     else if (kind === 'train') BG.bakeTrain(level, W, H, pal);
+    else if (kind === 'sewer') BG.bakeSewer(level, W, H, pal);
   },
-  bakeAlley(level, W, H, pal){
-    // far skyline (0.15)
+  bakeSewer(level, W, H, pal){
+    // deep tunnel behind the wall openings (0.2)
     {
-      const f = 0.15, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
-      // moon
-      g.save();
-      g.shadowColor = '#e8e8ff'; g.shadowBlur = 30;
-      g.fillStyle = '#e8e8f8';
-      g.fillRect(c.width - 260, 60, 34, 34);
-      g.restore();
-      g.fillStyle = '#c8c8dd';
-      g.fillRect(c.width - 252, 68, 6, 6);
-      g.fillRect(c.width - 240, 80, 8, 8);
-      let x = 0;
-      while (x < c.width){
-        const bw = 60 + Utils.rand() * 90, bh = 120 + Utils.rand() * 150;
-        g.fillStyle = pal.far;
-        g.fillRect(x, 470 - bh, bw, bh);
-        g.fillStyle = 'rgba(255,217,79,0.35)';
-        for (let wx = x + 6; wx < x + bw - 8; wx += 14)
-          for (let wy = 470 - bh + 10; wy < 450; wy += 22)
-            if (Utils.rand() < 0.18) g.fillRect(wx, wy, 4, 6);
-        x += bw + 4 + Utils.rand() * 20;
-      }
-      BG.layers.push({ canvas: c, factor: f, y: 0 });
-    }
-    // mid buildings + neon (0.4)
-    {
-      const f = 0.4, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
-      let x = 0, signI = 0;
-      while (x < c.width){
-        const bw = 130 + Utils.rand() * 110, bh = 210 + Utils.rand() * 130;
-        g.fillStyle = pal.mid;
-        g.fillRect(x, 470 - bh, bw, bh);
-        g.fillStyle = 'rgba(10,6,20,0.6)';                 // roof lip
-        g.fillRect(x, 470 - bh, bw, 6);
-        g.fillStyle = 'rgba(125,253,254,0.12)';
-        for (let wx = x + 8; wx < x + bw - 12; wx += 18)
-          for (let wy = 470 - bh + 14; wy < 440; wy += 26)
-            if (Utils.rand() < 0.3) g.fillRect(wx, wy, 8, 10);
-        // neon sign on some buildings
-        if (Utils.rand() < 0.55 && bh > 230){
-          const neon = pal.neon[signI++ % pal.neon.length];
-          const sx = x + 12 + Utils.rand() * (bw - 50), sy = 470 - bh + 30;
+      const f = 0.2, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
+      g.fillStyle = pal.far;
+      g.fillRect(0, 0, c.width, H);
+      for (let ax = 0; ax < c.width; ax += 190){
+        g.fillStyle = '#0a1f15';                              // distant pipe glints
+        g.fillRect(ax + 20, 240 + (ax % 60), 130, 10);
+        if ((ax / 190 | 0) % 3 === 0){
           g.save();
-          g.shadowColor = neon; g.shadowBlur = 16;
-          g.fillStyle = neon;
-          if (Utils.rand() < 0.5){                          // vertical sign
-            g.fillRect(sx, sy, 14, 70);
-            g.fillStyle = '#0b0716';
-            for (let i = 0; i < 4; i++) g.fillRect(sx + 3, sy + 8 + i * 16, 8, 8);
-          } else {                                          // horizontal sign
-            g.fillRect(sx, sy, 54, 18);
-            g.fillStyle = '#0b0716';
-            for (let i = 0; i < 4; i++) g.fillRect(sx + 5 + i * 12, sy + 5, 7, 8);
-          }
+          g.shadowColor = '#3dfc7e'; g.shadowBlur = 16;
+          g.fillStyle = 'rgba(61,252,126,0.65)';
+          g.fillRect(ax + 70, 330 + (ax % 40), 26, 9);        // glowing sludge outfall
           g.restore();
         }
-        // fire escape zigzag
-        if (Utils.rand() < 0.4){
-          g.strokeStyle = 'rgba(8,8,16,0.9)'; g.lineWidth = 3;
-          g.beginPath();
-          let fy = 470 - bh + 40;
-          while (fy < 430){ g.moveTo(x + 10, fy); g.lineTo(x + bw * 0.5, fy + 24); fy += 48; }
-          g.stroke();
-        }
-        x += bw + 8 + Utils.rand() * 30;
       }
       BG.layers.push({ canvas: c, factor: f, y: 0 });
     }
-    // near alley wall (0.75)
+    // near tunnel wall: bricks, arches to the deep, pipes, grates (0.75)
     {
       const f = 0.75, c = BG.make(level.width * f + W, H), g = c.getContext('2d');
       g.fillStyle = pal.wall;
-      g.fillRect(0, 292, c.width, 178);
-      g.fillStyle = 'rgba(0,0,0,0.35)';
-      g.fillRect(0, 292, c.width, 5);                     // wall cap
-      // brick courses
-      g.fillStyle = 'rgba(0,0,0,0.18)';
-      for (let by = 306; by < 470; by += 16) g.fillRect(0, by, c.width, 2);
+      g.fillRect(0, 96, c.width, 374);
+      g.fillStyle = 'rgba(0,0,0,0.22)';
+      for (let by = 110; by < 470; by += 16) g.fillRect(0, by, c.width, 2);
       for (let bx = 0; bx < c.width; bx += 34)
-        for (let by = 297; by < 470; by += 32)
+        for (let by = 96; by < 470; by += 32)
           g.fillRect(bx + ((by / 32 | 0) % 2) * 17, by, 2, 16);
-      // wires sagging along the wall top
-      g.strokeStyle = 'rgba(5,5,12,0.8)'; g.lineWidth = 2;
-      for (let wx = 0; wx < c.width; wx += 320){
-        g.beginPath();
-        g.moveTo(wx, 296);
-        g.quadraticCurveTo(wx + 160, 336, wx + 320, 300);
-        g.stroke();
+      // arched openings showing the deep tunnel layer behind
+      for (let ax = 330; ax < c.width; ax += 760){
+        g.clearRect(ax, 220, 150, 250);
+        g.clearRect(ax + 25, 190, 100, 40);
+        g.fillStyle = '#0b1a12';                              // arch brick trim
+        g.fillRect(ax - 10, 190, 12, 280);
+        g.fillRect(ax + 148, 190, 12, 280);
+        g.fillRect(ax + 15, 178, 120, 14);
       }
-      // doors, pipes, graffiti, lamps
-      for (let dx = 140; dx < c.width; dx += 380 + Utils.rand() * 160){
-        const roll = Utils.rand();
-        if (roll < 0.35){                                   // steel door
-          g.fillStyle = pal.wallDark;
-          g.fillRect(dx, 470 - 86, 52, 86);
-          g.fillStyle = 'rgba(125,253,254,0.15)';
-          g.fillRect(dx + 40, 470 - 50, 5, 5);
-        } else if (roll < 0.6){                             // drain pipe
-          g.fillStyle = '#141022';
-          g.fillRect(dx, 297, 8, 173);
-          g.fillRect(dx - 6, 340, 20, 8);
-        } else {                                            // graffiti tag
-          const neon = pal.neon[(dx / 100 | 0) % pal.neon.length];
-          g.fillStyle = neon; g.globalAlpha = 0.5;
-          g.fillRect(dx, 380, 26, 12);
-          g.fillRect(dx + 20, 368, 18, 12);
-          g.fillRect(dx + 8, 394, 34, 10);
-          g.globalAlpha = 1;
+      // big pipe run bolted to the wall
+      g.fillStyle = '#1e4634';
+      g.fillRect(0, 132, c.width, 20);
+      g.fillStyle = 'rgba(255,255,255,0.08)';
+      g.fillRect(0, 136, c.width, 4);
+      g.fillStyle = '#0e241a';
+      for (let jx = 40; jx < c.width; jx += 150){
+        g.fillRect(jx, 128, 10, 28);                          // joints
+        if ((jx / 150 | 0) % 3 === 1){                        // hanging valve
+          g.fillRect(jx + 3, 152, 5, 26);
+          g.fillRect(jx - 6, 176, 22, 7);
         }
       }
-      // wall lamps with glow pools
-      for (let lx = 300; lx < c.width; lx += 640){
+      // dribbling slime with glow
+      for (let vx = 210; vx < c.width; vx += 470){
         g.save();
-        g.shadowColor = '#ffd94f'; g.shadowBlur = 24;
-        g.fillStyle = '#ffd94f';
-        g.fillRect(lx, 318, 12, 8);
+        g.shadowColor = '#3dfc7e'; g.shadowBlur = 12;
+        g.fillStyle = 'rgba(61,252,126,0.5)';
+        g.fillRect(vx, 152, 5, 130 + (vx % 100));
+        g.fillRect(vx - 3, 276 + (vx % 100), 11, 6);
         g.restore();
-        const pool = g.createLinearGradient(0, 326, 0, 470);
-        pool.addColorStop(0, 'rgba(255,217,79,0.18)');
-        pool.addColorStop(1, 'rgba(255,217,79,0)');
+      }
+      // green emergency lamps with glow pools
+      for (let lx = 150; lx < c.width; lx += 560){
+        g.save();
+        g.shadowColor = '#9dff57'; g.shadowBlur = 20;
+        g.fillStyle = '#9dff57';
+        g.fillRect(lx, 236, 14, 9);
+        g.restore();
+        const pool = g.createLinearGradient(0, 245, 0, 470);
+        pool.addColorStop(0, 'rgba(157,255,87,0.14)');
+        pool.addColorStop(1, 'rgba(157,255,87,0)');
         g.fillStyle = pool;
-        g.fillRect(lx - 40, 326, 92, 144);
+        g.fillRect(lx - 44, 245, 102, 225);
+      }
+      // ceiling grates with narrow light shafts
+      for (let gx = 480; gx < c.width; gx += 900){
+        g.fillStyle = '#050b08';
+        g.fillRect(gx, 96, 90, 12);
+        g.fillStyle = 'rgba(0,0,0,0.6)';
+        for (let i = 0; i < 5; i++) g.fillRect(gx + 8 + i * 17, 96, 6, 12);
+        const shaft = g.createLinearGradient(0, 108, 0, 470);
+        shaft.addColorStop(0, 'rgba(200,255,220,0.22)');
+        shaft.addColorStop(1, 'rgba(200,255,220,0)');
+        g.fillStyle = shaft;
+        g.fillRect(gx + 12, 108, 66, 362);
       }
       BG.layers.push({ canvas: c, factor: f, y: 0 });
     }
@@ -1786,6 +1793,17 @@ function drawPlatform(ctx, p, level){
       ctx.moveTo(fx + 12, p.y + 5); ctx.lineTo(fx, bottom);
     }
     ctx.stroke();
+  } else if (p.kind === 'pipe'){
+    ctx.fillStyle = '#2a5a44';
+    ctx.fillRect(p.x - 6, p.y, p.w + 12, 18);
+    ctx.fillStyle = '#1e4230';
+    ctx.fillRect(p.x - 6, p.y + 12, p.w + 12, 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(p.x - 6, p.y + 3, p.w + 12, 3);
+    ctx.fillStyle = '#12241c';
+    for (let bx2 = p.x + 8; bx2 < p.x + p.w - 6; bx2 += 34) ctx.fillRect(bx2, p.y + 2, 6, 14);
+    ctx.fillRect(p.x + 10, p.y + 18, 8, h - 18);
+    ctx.fillRect(p.x + p.w - 18, p.y + 18, 8, h - 18);
   } else if (p.kind === 'ac'){
     ctx.fillStyle = '#3a3a4c';
     ctx.fillRect(p.x, p.y, p.w, h);
@@ -2076,6 +2094,71 @@ function drawSuit(ctx, e){
     ctx.textAlign = 'left';
   }
 }
+function drawGator(ctx, e){
+  const c = flashColor(e);
+  ctx.save();
+  ctx.globalAlpha = e.alpha;
+  ctx.translate(Math.round(e.x), Math.round(e.y - e.h / 2));
+  if (e.state === 'TUMBLE' || e.state === 'DYING') ctx.rotate(e.rot);
+  else if (e.state === 'DOWNED') ctx.rotate(Math.PI * (e.facing > 0 ? -1 : 1)); // belly up
+  if (e.state === 'GETUP'){
+    const t = e.stateTick / 30;
+    ctx.rotate(Math.PI * (1 - t) * (e.facing > 0 ? -1 : 1));
+  }
+  const fx = e.facing;
+  if (e.state === 'WINDUP'){
+    const pulse = (e.stateTick % 8) < 4;
+    ctx.fillStyle = pulse ? 'rgba(255,60,60,0.35)' : 'rgba(255,255,255,0.2)';
+    ctx.fillRect(-34, -22, 68, 44);
+  }
+  const crawl = (Math.abs(e.vx) > 0.4) ? Math.round(Math.sin(e.runTick * 0.5) * 3) : 0;
+  // tail (behind)
+  ctx.fillStyle = c('#1e5c34');
+  ctx.fillRect(fx > 0 ? -28 - 14 : 28, -2, 14, 8);
+  ctx.fillStyle = c('#174a2a');
+  ctx.fillRect(fx > 0 ? -28 - 24 : 28 + 14, 0, 11, 5);
+  // stub legs
+  ctx.fillStyle = c('#174a2a');
+  ctx.fillRect(-20 + crawl, 9, 8, 8);
+  ctx.fillRect(8 - crawl, 9, 8, 8);
+  // body
+  ctx.fillStyle = c('#27743f');
+  ctx.fillRect(-28, -10, 56, 20);
+  // back ridges
+  ctx.fillStyle = c('#1a5330');
+  for (let i = -22; i < 24; i += 12) ctx.fillRect(i, -14, 6, 5);
+  // belly stripe
+  ctx.fillStyle = c('#8fbf7a');
+  ctx.fillRect(-24, 4, 48, 5);
+  // head + snout toward facing
+  const openJaw = e.state === 'WINDUP' || e.state === 'ATTACK';
+  ctx.fillStyle = c('#27743f');
+  ctx.fillRect(fx > 0 ? 24 : -24 - 16, -12, 16, 16);           // head block
+  ctx.fillRect(fx > 0 ? 38 : -38 - 18, openJaw ? -14 : -8, 18, 7);  // top snout
+  ctx.fillStyle = c('#1e5c34');
+  ctx.fillRect(fx > 0 ? 38 : -38 - 18, openJaw ? 4 : 1, 18, 6);     // lower jaw
+  // teeth
+  ctx.fillStyle = c('#e8f0dd');
+  for (let i = 0; i < 3; i++){
+    const tx = (fx > 0 ? 40 : -44) + i * 5 * fx;
+    ctx.fillRect(tx, openJaw ? -8 : -2, 3, 3);
+  }
+  // red eye
+  ctx.fillStyle = '#ff3344';
+  ctx.fillRect(fx > 0 ? 28 : -33, -10, 5, 4);
+  ctx.restore();
+  if (e.state === 'WINDUP'){
+    ctx.fillStyle = (e.stateTick % 8) < 4 ? '#ff5555' : '#ffffff';
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', Math.round(e.x), Math.round(e.y - e.h - 10));
+    ctx.textAlign = 'left';
+  }
+}
+function drawEnemy(ctx, e){
+  if (e.type === 'gator') drawGator(ctx, e);
+  else drawSuit(ctx, e);
+}
 function drawBoss(ctx, b){
   const c = flashColor(b);
   const winding = b.state.endsWith('_WINDUP');
@@ -2238,9 +2321,18 @@ const Game = {
     Game.newBest = Game.scores[0] === entry && Game.score > 0;
     try { localStorage.setItem('judesGameScores', JSON.stringify(Game.scores)); } catch (e){}
   },
+  nextLifeAt: 10000,
   addScore(points, x, y){
     Game.score += points;
     if (x !== undefined) FX.text(x, y, '+' + points, '#ffd94f');
+    while (Game.score >= Game.nextLifeAt){
+      Game.nextLifeAt += CONFIG.EXTRA_LIFE_EVERY;
+      if (Game.lives < CONFIG.MAX_LIVES){
+        Game.lives++;
+        if (Game.player) FX.text(Game.player.x, Game.player.y - Game.player.h - 30, 'EXTRA LIFE!', '#3dfc7e');
+        Audio.sfx('levelClear');
+      }
+    }
   },
   loadLevel(i){
     Game.levelIndex = i;
@@ -2357,9 +2449,14 @@ const Game = {
   },
   onBossDefeated(){
     Game.addScore(CONFIG.BOSS.score);
-    Audio.stopMusic();
-    Audio.sfx('victory');
-    Game.setState('VICTORY');
+    if (Game.levelIndex >= LEVELS.length - 1){
+      Audio.stopMusic();
+      Audio.sfx('victory');
+      Game.setState('VICTORY');
+    } else {
+      // the Head Suit is down, but the escape is not over yet
+      Game.completeLevel();
+    }
   },
   updateHazard(){
     const lvl = Game.level;
@@ -2454,6 +2551,7 @@ const Game = {
     try { localStorage.setItem('judesGameName', Game.playerName); } catch (e){}
     Game.scoreSaved = false; Game.newBest = false;
     Game.score = 0; Game.lives = CONFIG.PLAYER.lives;
+    Game.nextLifeAt = CONFIG.EXTRA_LIFE_EVERY;
     Game.player = new Player();
     Game.loadLevel(0);
   },
@@ -2508,6 +2606,18 @@ const Game = {
             const s = vis[Utils.rand() * vis.length | 0];
             const wx = Utils.rand() < 0.5 ? s.x + 38 : s.x + s.w - 60;
             FX.sparks(wx, s.y + 108, 2);
+          }
+        }
+        // sewer drips from the ceiling grates
+        if (Game.level.bg === 'sewer' && Game.tick % 26 === 0){
+          const p2 = FX.particles.find(p => !p.active);
+          if (p2){
+            p2.active = true;
+            p2.x = Camera.ix + Utils.rand() * CONFIG.VIEW_W;
+            p2.y = 116;
+            p2.vx = 0; p2.vy = 1.5;
+            p2.life = 0; p2.maxLife = 60;
+            p2.color = '#7dfdfe'; p2.size = 2; p2.gravity = 0.22;
           }
         }
         Camera.update(Game.player);
@@ -2568,7 +2678,7 @@ const Game = {
       ctx.fillStyle = '#ff3344';
       ctx.fillRect(hx + 36, sy + 18, 18, 20);
     }
-    for (const e of Game.enemies) drawSuit(ctx, e);
+    for (const e of Game.enemies) drawEnemy(ctx, e);
     if (Game.boss && !Game.boss.dead) drawBoss(ctx, Game.boss);
     if (Game.state === 'LIFE_LOST'){
       // Jimmy dramatically down
@@ -2582,6 +2692,17 @@ const Game = {
       drawJimmy(ctx, Game.player);
     }
     FX.draw(ctx);
+    // sewer: murky water channel in the foreground
+    if (level.bg === 'sewer'){
+      const camL = Camera.ix - 20, camR = Camera.ix + W + 20;
+      ctx.fillStyle = 'rgba(16,70,58,0.6)';
+      ctx.fillRect(camL, 516, camR - camL, 60);
+      ctx.fillStyle = 'rgba(125,253,254,0.14)';
+      for (let wx2 = Math.floor(camL / 46) * 46; wx2 < camR; wx2 += 46){
+        const sh = Math.sin(Game.tick * 0.05 + wx2 * 0.11) * 4;
+        ctx.fillRect(wx2 + sh, 520, 22, 2);
+      }
+    }
     ctx.restore();
     // pulsing GO arrow after a cleared wave
     if (Game.goArrow > 0 && Game.state === 'PLAYING'){
