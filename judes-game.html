@@ -97,12 +97,17 @@ const Input = {
     window.addEventListener('keydown', e => {
       if (e.repeat) return;
       Audio.unlock();
+      if (e.target && e.target.id === 'nameInput'){    // typing a name, not fighting
+        if (e.code === 'Enter'){ Input.pressed.confirm = true; e.target.blur(); }
+        return;
+      }
       const a = Input.keyMap[e.code];
       if (a){ Input.press(a); e.preventDefault(); }
       if (e.code === 'KeyP'){ Input.pressed.pause = true; e.preventDefault(); }
       if (e.code === 'Enter'){ Input.pressed.confirm = true; }
       if (e.code === 'Space' || e.code === 'KeyJ') Input.pressed.confirm = true;
     });
+    window.addEventListener('gesturestart', e => e.preventDefault());
     window.addEventListener('keyup', e => {
       const a = Input.keyMap[e.code];
       if (a) Input.release(a);
@@ -2112,6 +2117,63 @@ function drawBoss(ctx, b){
   }
 }
 
+/* =============================== HUD ================================ */
+/* On-screen touch controls, drawn on the canvas in game coordinates so
+   they scale with it. Movement zones re-latch on touchmove (kids slide
+   their thumb); attack buttons stay latched until the finger lifts. */
+const HUD = {
+  touchButtons: [
+    { id: 'L',  action: 'left',    x: 24,  y: 386, w: 104, h: 104, move: true,  label: '<' },
+    { id: 'R',  action: 'right',   x: 152, y: 386, w: 104, h: 104, move: true,  label: '>' },
+    { id: 'D',  action: 'down',    x: 24,  y: 494, w: 232, h: 40,  move: true,  label: 'DUCK' },
+    { id: 'T',  action: 'tornado', x: 676, y: 318, w: 104, h: 92,  label: 'SPIN' },
+    { id: 'K',  action: 'kick',    x: 800, y: 318, w: 104, h: 92,  label: 'KICK' },
+    { id: 'P',  action: 'punch',   x: 676, y: 424, w: 104, h: 92,  label: 'PUNCH' },
+    { id: 'J',  action: 'jump',    x: 800, y: 424, w: 132, h: 92,  label: 'JUMP' },
+  ],
+  pauseButton: { x: 912, y: 50, w: 34, h: 34 },
+  hit(bx, by){
+    for (const b of HUD.touchButtons){
+      if (bx >= b.x && bx <= b.x + b.w && by >= b.y && by <= b.y + b.h) return b;
+    }
+    return null;
+  },
+  drawTouch(ctx){
+    if (!Input.touchUIVisible) return;
+    if (Game.state !== 'PLAYING' && Game.state !== 'PAUSED' && Game.state !== 'LEVEL_INTRO') return;
+    ctx.font = 'bold 15px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    for (const b of HUD.touchButtons){
+      const meterFull = Game.player && Game.player.meter >= CONFIG.METER.max;
+      const isSpin = b.action === 'tornado';
+      let alpha = Input.held[b.action] ? 0.5 : 0.22;
+      if (isSpin && !meterFull) alpha = 0.1;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = isSpin && meterFull ? ((Game.tick % 20) < 10 ? '#ff4fd8' : '#7dfdfe') : '#ffffff';
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.globalAlpha = Math.min(1, alpha + 0.35);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(b.x + 1.5, b.y + 1.5, b.w - 3, b.h - 3);
+      ctx.fillStyle = '#ffffff';
+      const big = b.label.length === 1;
+      ctx.font = big ? 'bold 34px "Courier New", monospace' : 'bold 15px "Courier New", monospace';
+      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + (big ? 12 : 5));
+    }
+    // pause button
+    const pb = HUD.pauseButton;
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(pb.x, pb.y, pb.w, pb.h);
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = '#0b0716';
+    ctx.fillRect(pb.x + 9, pb.y + 8, 6, 18);
+    ctx.fillRect(pb.x + 19, pb.y + 8, 6, 18);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  },
+};
+
 /* ============================== Game ================================ */
 const Game = {
   state: 'TITLE',
@@ -2122,7 +2184,29 @@ const Game = {
   enemies: [], pickups: [], boss: null,
   hazardActive: false,
   meterFlash: 0,
-  setState(s){ Game.state = s; Game.stateTick = 0; },
+  playerName: '', scores: [], scoreSaved: true, newBest: false,
+  setState(s){
+    Game.state = s; Game.stateTick = 0;
+    if (s === 'GAME_OVER' || s === 'VICTORY') Game.saveScore();
+    if (s === 'TITLE') UIName.show();
+    else UIName.hide();
+  },
+  loadScores(){
+    try {
+      const s = JSON.parse(localStorage.getItem('judesGameScores') || '[]');
+      return Array.isArray(s) ? s.filter(e => e && typeof e.name === 'string' && typeof e.score === 'number') : [];
+    } catch (e){ return []; }
+  },
+  saveScore(){
+    if (Game.scoreSaved || !Game.playerName) return;
+    Game.scoreSaved = true;
+    const entry = { name: Game.playerName, score: Game.score };
+    Game.scores.push(entry);
+    Game.scores.sort((a, b) => b.score - a.score);
+    Game.scores = Game.scores.slice(0, 5);
+    Game.newBest = Game.scores[0] === entry && Game.score > 0;
+    try { localStorage.setItem('judesGameScores', JSON.stringify(Game.scores)); } catch (e){}
+  },
   addScore(points, x, y){
     Game.score += points;
     if (x !== undefined) FX.text(x, y, '+' + points, '#ffd94f');
@@ -2328,6 +2412,12 @@ const Game = {
     Game.setState('LEVEL_COMPLETE');
   },
   startGame(){
+    let nm = '';
+    try { nm = (nameInput.value || '').trim().toUpperCase().slice(0, 10); } catch (e){}
+    if (!nm){ try { nm = (localStorage.getItem('judesGameName') || '').toUpperCase().slice(0, 10); } catch (e){} }
+    Game.playerName = nm || 'JIMMY';
+    try { localStorage.setItem('judesGameName', Game.playerName); } catch (e){}
+    Game.scoreSaved = false; Game.newBest = false;
     Game.score = 0; Game.lives = CONFIG.PLAYER.lives;
     Game.player = new Player();
     Game.loadLevel(0);
@@ -2505,13 +2595,21 @@ const Game = {
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = '#3dfc7e';
       ctx.font = 'bold 50px "Courier New", monospace';
-      ctx.fillText('JIMMY ESCAPED!', W / 2, H / 2 - 40);
+      ctx.fillText('JIMMY ESCAPED!', W / 2, H / 2 - 70);
+      ctx.fillStyle = '#7dfdfe';
+      ctx.font = 'bold 20px "Courier New", monospace';
+      ctx.fillText('THE HEAD SUIT IS DOWN. NICE WORK, ' + (Game.playerName || 'JIMMY') + '!', W / 2, H / 2 - 28);
       ctx.fillStyle = '#ffd94f';
       ctx.font = 'bold 26px "Courier New", monospace';
-      ctx.fillText('SCORE: ' + Game.score, W / 2, H / 2 + 6);
+      ctx.fillText('SCORE: ' + Game.score, W / 2, H / 2 + 14);
+      if (Game.newBest && (Game.tick % 30) < 20){
+        ctx.fillStyle = '#ff4fd8';
+        ctx.font = 'bold 22px "Courier New", monospace';
+        ctx.fillText('NEW HIGH SCORE!', W / 2, H / 2 + 50);
+      }
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 18px "Courier New", monospace';
-      if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP FOR TITLE', W / 2, H / 2 + 54);
+      if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP FOR TITLE', W / 2, H / 2 + 92);
     }
     if (Game.state === 'LEVEL_INTRO'){
       ctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -2543,11 +2641,17 @@ const Game = {
       ctx.fillStyle = '#ffd94f';
       ctx.font = 'bold 24px "Courier New", monospace';
       ctx.fillText('SCORE: ' + Game.score, W / 2, H / 2 + 14);
+      if (Game.scores.length){
+        ctx.fillStyle = '#7dfdfe';
+        ctx.font = '16px "Courier New", monospace';
+        ctx.fillText('BEST: ' + Game.scores[0].name + ' ' + Game.scores[0].score, W / 2, H / 2 + 44);
+      }
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 18px "Courier New", monospace';
-      if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP TO TRY AGAIN', W / 2, H / 2 + 60);
+      if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP TO TRY AGAIN', W / 2, H / 2 + 78);
     }
     ctx.textAlign = 'left';
+    HUD.drawTouch(ctx);
   },
   drawHUD(ctx, W, H){
     // health bar
@@ -2601,24 +2705,45 @@ const Game = {
   drawTitle(ctx, W, H){
     ctx.fillStyle = '#140a26';
     ctx.fillRect(0, 0, W, H);
+    // faint skyline strip for mood
+    ctx.fillStyle = '#1d1132';
+    for (let x = 0; x < W; x += 70){
+      const h2 = 40 + ((x * 2654435761 % 83) / 83) * 90;
+      ctx.fillRect(x, H - h2, 54, h2);
+    }
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ff4fd8';
-    ctx.font = 'bold 64px "Courier New", monospace';
-    ctx.fillText("JUDE'S GAME", W / 2, 150);
+    ctx.font = 'bold 60px "Courier New", monospace';
+    ctx.fillText("JUDE'S GAME", W / 2, 105);
     ctx.fillStyle = '#7dfdfe';
-    ctx.font = 'bold 22px "Courier New", monospace';
-    ctx.fillText('JIMMY CRINKLE VS THE SUIT GUYS', W / 2, 195);
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillText('JIMMY CRINKLE VS THE SUIT GUYS', W / 2, 145);
     ctx.fillStyle = '#bbbbcc';
-    ctx.font = '16px "Courier New", monospace';
-    const lines = [
-      'ARROWS / A D  MOVE      W / UP / SPACE  JUMP',
-      'J  PUNCH      K  KICK      L  TORNADO KICK (FULL METER)',
-      'P  PAUSE',
+    ctx.font = '15px "Courier New", monospace';
+    const lines = Input.touchUIVisible ? [
+      'LEFT PAD: MOVE + DUCK        RIGHT PAD: JUMP / PUNCH / KICK',
+      'SPIN = TORNADO KICK, ONLY WHEN THE POWER BAR IS FULL',
+    ] : [
+      'ARROWS / A D  MOVE      W / UP / SPACE  JUMP      S / DOWN  DUCK',
+      'J  PUNCH      K  KICK      L  TORNADO KICK (FULL METER)      P  PAUSE',
     ];
-    lines.forEach((l, i) => ctx.fillText(l, W / 2, 280 + i * 28));
-    ctx.fillStyle = '#ffffff';
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, 195 + i * 24));
+    ctx.fillStyle = '#7dfdfe';
     ctx.font = 'bold 18px "Courier New", monospace';
-    if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP TO START', W / 2, 440);
+    ctx.fillText("WHO'S FIGHTING?", W / 2, 296);
+    // (name input DOM element sits at 312-356)
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 19px "Courier New", monospace';
+    if ((Game.tick % 60) < 40) ctx.fillText(Input.touchUIVisible ? 'TAP TO START' : 'PRESS ENTER TO START', W / 2, 400);
+    if (Game.scores.length){
+      ctx.fillStyle = '#ffd94f';
+      ctx.font = 'bold 17px "Courier New", monospace';
+      ctx.fillText('TOP FIGHTERS', W / 2, 438);
+      ctx.font = '15px "Courier New", monospace';
+      Game.scores.slice(0, 3).forEach((s, i) => {
+        ctx.fillText((i + 1) + '. ' + s.name.padEnd(11, ' ') + String(s.score).padStart(6, '0'), W / 2, 462 + i * 22);
+      });
+    }
     ctx.textAlign = 'left';
   },
 };
@@ -2652,6 +2777,90 @@ function toGame(cx, cy){
   return { x: (cx - viewOffX) / viewScale, y: (cy - viewOffY) / viewScale };
 }
 
+/* ========================= Touch controls =========================== */
+const touchMap = new Map();
+const MOVE_ACTIONS = { left: 1, right: 1, down: 1 };
+function handleTouchStart(e){
+  e.preventDefault();
+  Audio.unlock();
+  Input.touchUIVisible = true;
+  for (const t of e.changedTouches){
+    const g = toGame(t.clientX, t.clientY);
+    const pb = HUD.pauseButton;
+    const inGame = Game.state === 'PLAYING' || Game.state === 'PAUSED' || Game.state === 'LEVEL_INTRO';
+    if (inGame && g.x >= pb.x - 10 && g.x <= pb.x + pb.w + 10 && g.y >= pb.y - 10 && g.y <= pb.y + pb.h + 10){
+      Input.pressed.pause = true;
+      continue;
+    }
+    const b = inGame ? HUD.hit(g.x, g.y) : null;
+    if (b){
+      touchMap.set(t.identifier, b.action);
+      Input.press(b.action);
+    } else if (Game.state !== 'PLAYING'){
+      Input.pressed.confirm = true;
+    }
+  }
+}
+function handleTouchMove(e){
+  e.preventDefault();
+  for (const t of e.changedTouches){
+    const cur = touchMap.get(t.identifier);
+    if (cur && !MOVE_ACTIONS[cur]) continue;         // attack buttons stay latched
+    const g = toGame(t.clientX, t.clientY);
+    const b = HUD.hit(g.x, g.y);
+    const next = (b && MOVE_ACTIONS[b.action]) ? b.action : null;
+    if (next !== cur){
+      if (cur) Input.release(cur);
+      if (next){ touchMap.set(t.identifier, next); Input.press(next); }
+      else touchMap.delete(t.identifier);
+    }
+  }
+}
+function handleTouchEnd(e){
+  e.preventDefault();
+  Audio.unlock();
+  for (const t of e.changedTouches){
+    const cur = touchMap.get(t.identifier);
+    if (cur !== undefined){ Input.release(cur); touchMap.delete(t.identifier); }
+  }
+  if (e.type === 'touchcancel' && e.touches.length === 0){
+    Input.clearHeld();
+    touchMap.clear();
+  }
+}
+canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+
+/* =========================== Name entry ============================= */
+const nameInput = document.getElementById('nameInput');
+const UIName = {
+  visible: false,
+  show(){
+    UIName.visible = true;
+    try { nameInput.value = localStorage.getItem('judesGameName') || ''; } catch (e){}
+    nameInput.style.display = 'block';
+    UIName.position();
+  },
+  hide(){
+    if (!UIName.visible) return;
+    UIName.visible = false;
+    nameInput.blur();                 // closes the iPad keyboard before play
+    nameInput.style.display = 'none';
+  },
+  position(){
+    const tl = toScreen(CONFIG.VIEW_W / 2 - 130, 310);
+    nameInput.style.left = Math.round(tl.x) + 'px';
+    nameInput.style.top = Math.round(tl.y) + 'px';
+    nameInput.style.width = Math.round(260 * viewScale - 14) + 'px';
+    nameInput.style.height = Math.round(46 * viewScale - 12) + 'px';
+    nameInput.style.fontSize = Math.round(22 * viewScale) + 'px';
+  },
+};
+window.addEventListener('resize', () => { if (UIName.visible) UIName.position(); });
+window.addEventListener('orientationchange', () => { setTimeout(() => { if (UIName.visible) UIName.position(); }, 260); });
+
 const STEP = 1000 / 60;
 let acc = 0, last = performance.now();
 function frame(now){
@@ -2672,7 +2881,9 @@ function frame(now){
 }
 
 Input.init();
-window.__game = { Game, Input, CONFIG, Utils, Audio, FX, Camera, toScreen, toGame };
+Game.scores = Game.loadScores();
+UIName.show();                        // the game opens on the title screen
+window.__game = { Game, Input, CONFIG, Utils, Audio, FX, Camera, HUD, toScreen, toGame };
 requestAnimationFrame(frame);
 </script>
 </body>
