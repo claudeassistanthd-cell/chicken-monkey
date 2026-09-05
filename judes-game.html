@@ -148,6 +148,13 @@ const TRACKS = {
     kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0],
     hat:  [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
   },
+  flight: {
+    bpm: 150, root: 52,
+    bass: [0, null, 0, null, 5, null, 5, null, 7, null, 7, null, 5, null, 3, null],
+    lead: [12, null, 16, null, 19, null, 16, null, 12, null, 17, null, 16, null, 14, null],
+    kick: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0],
+    hat:  [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1],
+  },
   plane: {
     bpm: 128, root: 47,
     bass: [0, 0, null, null, 3, 3, null, null, 5, 5, null, null, 3, null, 2, null],
@@ -378,6 +385,16 @@ const Audio = {
         break;
       case 'gameOver':
         [392, 370, 349, 330].forEach((f, i) => Audio.tone('square', f, f, t + i * 0.18, 0.2, 0.18));
+        break;
+      case 'shoot':
+        Audio.tone('square', 950, 420, t, 0.07, 0.12);
+        Audio.noiseHit(t, 0.03, 'highpass', 3000, 0.06);
+        break;
+      case 'foeShoot':
+        Audio.tone('square', 400, 200, t, 0.09, 0.1);
+        break;
+      case 'bail':
+        Audio.tone('sine', 700, 180, t, 0.35, 0.14);
         break;
       case 'klaxon':
         Audio.tone('square', 700, 700, t, 0.09, 0.2);
@@ -1237,6 +1254,498 @@ class Boss {
   }
 }
 
+/* ============================ Flight mode =========================== */
+/* Level 6: Jimmy nicks a jetpack and blasts through the dawn sky.
+   Same buttons, new meanings: JUMP = thrust, PUNCH/KICK = blaster,
+   DUCK = dive, SPIN = nova barrel roll. Zapped suits parachute away. */
+const FM = {
+  p: null, bolts: [], foeBolts: [], foes: [],
+  t: 0, timeline: [], tlIdx: 0, bossAt: 0,
+  boss: null, fireCooldown: 0, novaFlash: 0, muzzle: 0,
+  init(level){
+    FM.p = { x: 180, y: 270, vx: 0, vy: 0 };
+    FM.bolts = []; FM.foeBolts = []; FM.foes = [];
+    FM.t = 0; FM.tlIdx = 0; FM.boss = null;
+    FM.fireCooldown = 0; FM.novaFlash = 0; FM.muzzle = 0;
+    const TL = [];
+    let t = 150;
+    for (let i = 0; i < 4; i++){ TL.push({ t, kind: 'flyer', y: 120 + (i % 3) * 130 }); t += 240; }
+    for (let i = 0; i < 5; i++){
+      TL.push({ t, kind: 'flyer', y: 100 + (i % 4) * 110 });
+      TL.push({ t: t + 45, kind: i % 2 ? 'diver' : 'flyer', y: 80 + ((i + 2) % 4) * 120 });
+      t += 290;
+    }
+    for (let i = 0; i < 6; i++){
+      TL.push({ t, kind: i % 3 === 2 ? 'diver' : 'flyer', y: 90 + (i % 5) * 100 });
+      t += 165;
+    }
+    FM.timeline = TL;
+    FM.bossAt = t + 320;
+  },
+  hurtJimmy(dmg, kb){
+    const gp = Game.player;
+    if (gp.invuln > 0 || gp.hp <= 0) return;
+    gp.hp -= dmg;
+    gp.invuln = 60; gp.flash = 4;
+    FM.p.vx += kb || -2.5;
+    FX.shake(5);
+    FX.burst(FM.p.x, FM.p.y, '#ff6a6a', 6, 2.5);
+    Audio.sfx('hurt');
+    if (gp.hp <= 0){ gp.hp = 0; Game.onPlayerDeath(); }
+  },
+  jimmyBox(){ return { x: FM.p.x - 14, y: FM.p.y - 16, w: 30, h: 32 }; },
+  bailFoe(f){
+    if (f.out) return;
+    f.out = true; f.outT = 0; f.rot = 0;
+    Game.addScore(150, f.x, f.y - 20);
+    Game.player.gainMeter(8);
+    FX.star(f.x, f.y);
+    Audio.sfx('bail');
+  },
+  nova(){
+    const gp = Game.player;
+    gp.meter = 0;
+    gp.invuln = Math.max(gp.invuln, 60);
+    FM.novaFlash = 16;
+    FX.shake(12);
+    Audio.sfx('tornado');
+    for (const f of FM.foes) FM.bailFoe(f);
+    FM.foeBolts.length = 0;
+    if (FM.boss && FM.boss.state !== 'DYING' && FM.boss.state !== 'ENTER'){
+      FM.boss.hp -= 25;
+      FM.boss.stagger = 40;
+      FX.star(FM.boss.x - 30, FM.boss.y, true);
+      FM.checkBossState();
+    }
+  },
+  checkBossState(){
+    const b = FM.boss;
+    if (!b) return;
+    if (b.hp <= 0 && b.state !== 'DYING'){
+      b.state = 'DYING'; b.t = 0;
+      FX.stop(40);
+      FX.shake(12);
+      Audio.sfx('knockdown');
+      for (const f of FM.foes) FM.bailFoe(f);
+      FM.foeBolts.length = 0;
+    } else if (b.phase === 1 && b.hp <= b.maxHp / 2){
+      b.phase = 2;
+      b.stagger = 50;
+      FX.shake(8);
+      FX.text(b.x - 60, b.y - 80, 'YOU ARE A LIABILITY, CRINKLE', '#ffd94f');
+      Audio.sfx('bossSting');
+    }
+  },
+  fireFoeBolt(x, y, speed, spread){
+    const dx = FM.p.x - x, dy = FM.p.y - y;
+    const base = Math.atan2(dy, dx) + (spread || 0);
+    FM.foeBolts.push({ x, y, vx: Math.cos(base) * speed, vy: Math.sin(base) * speed });
+    Audio.sfx('foeShoot');
+  },
+  update(){
+    FM.t++;
+    const p = FM.p, gp = Game.player, held = Input.held, pressed = Input.pressed;
+    if (gp.invuln > 0) gp.invuln--;
+    if (gp.flash > 0) gp.flash--;
+    if (FM.novaFlash > 0) FM.novaFlash--;
+    if (FM.muzzle > 0) FM.muzzle--;
+    // thrust flight
+    if (held.jump) p.vy -= 0.55;
+    if (held.down) p.vy += 0.5;
+    p.vy = Utils.clamp(p.vy + 0.34, -6.5, 7);
+    if (held.left) p.vx -= 0.5;
+    else if (held.right) p.vx += 0.5;
+    else p.vx *= 0.9;
+    p.vx = Utils.clamp(p.vx, -3.6, 3.6);
+    p.x = Utils.clamp(p.x + p.vx, 60, 640);
+    p.y = Utils.clamp(p.y + p.vy, 50, 505);
+    if (p.y >= 505) p.vy = 0;
+    if (p.y <= 50) p.vy = 0;
+    // blaster
+    if (FM.fireCooldown > 0) FM.fireCooldown--;
+    if ((held.punch || held.kick || pressed.punch || pressed.kick) && FM.fireCooldown <= 0){
+      FM.fireCooldown = 9;
+      FM.muzzle = 4;
+      FM.bolts.push({ x: p.x + 30, y: p.y - 2, vx: 10 });
+      Audio.sfx('shoot');
+    }
+    if (pressed.tornado){
+      if (gp.meter >= CONFIG.METER.max) FM.nova();
+      else { Audio.sfx('dud'); Game.meterFlash = 20; }
+    }
+    // spawns
+    while (FM.tlIdx < FM.timeline.length && FM.timeline[FM.tlIdx].t <= FM.t){
+      const s = FM.timeline[FM.tlIdx++];
+      FM.foes.push({
+        kind: s.kind, x: 1020, y: s.y, y0: s.y,
+        vx: s.kind === 'diver' ? -3.2 : -2.2, vy: 0,
+        hp: s.kind === 'diver' ? 1 : 2,
+        t: 0, locked: false, out: false, outT: 0, rot: 0,
+        fireAt: 90 + (Utils.rand() * 80 | 0),
+      });
+    }
+    if (!FM.boss && FM.t >= FM.bossAt){
+      FM.boss = {
+        x: 1120, y: 250, hp: 260, maxHp: 260, phase: 1,
+        state: 'ENTER', t: 0, cooldown: 80, stagger: 0, sweepBack: false, rot: 0,
+      };
+      Audio.music('boss');
+      Audio.sfx('bossSting');
+      FX.shake(6);
+    }
+    // foes
+    for (let i = FM.foes.length - 1; i >= 0; i--){
+      const f = FM.foes[i];
+      f.t++;
+      if (f.out){
+        f.outT++;
+        f.rot += f.outT < 22 ? 0.32 : 0;
+        f.vx *= 0.97;
+        f.vy = f.outT < 22 ? f.vy + 0.3 : Math.min(f.vy + 0.05, 1.3);   // chute opens
+        f.x += f.vx; f.y += f.vy;
+        if (f.outT >= 22) f.x += Math.sin(f.outT * 0.1) * 0.8;          // sway under canopy
+        if (f.y > 640 || f.x < -80) FM.foes.splice(i, 1);
+        continue;
+      }
+      if (f.kind === 'flyer'){
+        f.x += f.vx;
+        f.y = f.y0 + Math.sin(f.t * 0.05) * 46;
+        if (f.x < 960 && f.t % f.fireAt === 0) FM.fireFoeBolt(f.x - 16, f.y, 3.4);
+      } else {
+        if (!f.locked && f.x < p.x + 280){
+          f.locked = true;
+          const ang = Math.atan2(p.y - f.y, p.x - f.x);
+          f.vx = Math.cos(ang) * 5.2; f.vy = Math.sin(ang) * 5.2;
+        }
+        f.x += f.vx; f.y += f.vy;
+      }
+      if (f.x < -80 || f.y > 620 || f.y < -80){ FM.foes.splice(i, 1); continue; }
+      // body contact
+      if (gp.invuln <= 0 && Utils.aabb({ x: f.x - 14, y: f.y - 12, w: 28, h: 24 }, FM.jimmyBox())){
+        FM.hurtJimmy(12, f.vx < 0 ? -3 : 3);
+        FM.bailFoe(f);   // they crash off you and bail
+      }
+    }
+    // player bolts
+    for (let i = FM.bolts.length - 1; i >= 0; i--){
+      const b = FM.bolts[i];
+      b.x += b.vx;
+      let hit = false;
+      for (const f of FM.foes){
+        if (f.out) continue;
+        if (Utils.aabb({ x: b.x - 7, y: b.y - 3, w: 14, h: 6 }, { x: f.x - 14, y: f.y - 12, w: 28, h: 24 })){
+          f.hp--;
+          hit = true;
+          gp.gainMeter(6);
+          FX.burst(b.x, b.y, '#7dfdfe', 4, 2);
+          Audio.sfx('hit');
+          if (f.hp <= 0) FM.bailFoe(f);
+          break;
+        }
+      }
+      if (!hit && FM.boss && FM.boss.state !== 'DYING' && FM.boss.state !== 'ENTER'){
+        const bb = FM.boss;
+        if (Utils.aabb({ x: b.x - 7, y: b.y - 3, w: 14, h: 6 }, { x: bb.x - 55, y: bb.y - 55, w: 110, h: 120 })){
+          bb.hp -= 6;
+          hit = true;
+          gp.gainMeter(4);
+          FX.burst(b.x, b.y, '#ffd94f', 4, 2);
+          Audio.sfx('hit');
+          FM.checkBossState();
+        }
+      }
+      if (hit || b.x > 1010) FM.bolts.splice(i, 1);
+    }
+    // foe bolts
+    for (let i = FM.foeBolts.length - 1; i >= 0; i--){
+      const b = FM.foeBolts[i];
+      b.x += b.vx; b.y += b.vy;
+      if (gp.invuln <= 0 && gp.hp > 0 && Utils.aabb({ x: b.x - 5, y: b.y - 5, w: 10, h: 10 }, FM.jimmyBox())){
+        FM.hurtJimmy(10);
+        FM.foeBolts.splice(i, 1);
+        continue;
+      }
+      if (b.x < -40 || b.x > 1040 || b.y < -40 || b.y > 620) FM.foeBolts.splice(i, 1);
+    }
+    if (Game.state !== 'PLAYING') return;   // died to something above
+    // the Chairman
+    const bb = FM.boss;
+    if (!bb) return;
+    bb.t++;
+    if (bb.stagger > 0){ bb.stagger--; return; }
+    switch (bb.state){
+      case 'ENTER':
+        bb.x = Math.max(760, bb.x - 3.5);
+        if (bb.x <= 760){
+          bb.state = 'HOVER'; bb.t = 0;
+          FX.text(bb.x - 20, bb.y - 90, 'THE CHAIRMAN', '#ffd94f');
+        }
+        break;
+      case 'HOVER': {
+        bb.y = Utils.lerp(bb.y, Utils.clamp(p.y, 130, 420), 0.02);
+        bb.y += Math.sin(bb.t * 0.05) * 0.8;
+        if (bb.cooldown > 0){ bb.cooldown--; break; }
+        const r = Utils.rand();
+        const aliveFoes = FM.foes.filter(f => !f.out).length;
+        if (bb.phase === 2 && r < 0.3){ bb.state = 'WALL'; bb.t = 0; }
+        else if (r < 0.5){ bb.state = 'FAN'; bb.t = 0; }
+        else if (r < 0.68 && aliveFoes < 2){
+          FM.foes.push({ kind: 'flyer', x: 1020, y: bb.y - 80, y0: bb.y - 80, vx: -2.2, vy: 0, hp: 2, t: 0, locked: false, out: false, outT: 0, rot: 0, fireAt: 110 });
+          FM.foes.push({ kind: 'flyer', x: 1060, y: bb.y + 80, y0: bb.y + 80, vx: -2.2, vy: 0, hp: 2, t: 0, locked: false, out: false, outT: 0, rot: 0, fireAt: 130 });
+          bb.cooldown = bb.phase === 2 ? 120 : 150;
+        }
+        else { bb.state = 'SWEEP_WINDUP'; bb.t = 0; }
+        break;
+      }
+      case 'FAN': {
+        if (bb.t === 8){
+          const n = bb.phase === 2 ? 5 : 3;
+          for (let k = 0; k < n; k++){
+            FM.fireFoeBolt(bb.x - 60, bb.y, 3.6, (k - (n - 1) / 2) * 0.22);
+          }
+        }
+        if (bb.t >= 30){
+          bb.state = 'HOVER';
+          bb.cooldown = bb.phase === 2 ? 48 : 70;
+        }
+        break;
+      }
+      case 'WALL': {
+        if (bb.t === 8){
+          const gap = 1 + (Utils.rand() * 3 | 0);
+          for (let k = 0; k < 5; k++){
+            if (k === gap) continue;
+            FM.foeBolts.push({ x: 990, y: 80 + k * 100, vx: -4.2, vy: 0 });
+          }
+          Audio.sfx('foeShoot');
+        }
+        if (bb.t >= 26){ bb.state = 'HOVER'; bb.cooldown = 60; }
+        break;
+      }
+      case 'SWEEP_WINDUP':
+        if (bb.t >= (bb.phase === 2 ? 32 : 45)){
+          bb.state = 'SWEEP'; bb.t = 0;
+          Audio.sfx('waveStart');
+        }
+        break;
+      case 'SWEEP':
+        if (!bb.sweepBack){
+          bb.x -= 9;
+          if (gp.invuln <= 0 && Utils.aabb({ x: bb.x - 55, y: bb.y - 50, w: 110, h: 100 }, FM.jimmyBox())){
+            FM.hurtJimmy(14, -4);
+          }
+          if (bb.x < 60){ bb.sweepBack = true; }
+        } else {
+          bb.x += 4.5;
+          if (bb.x >= 760){ bb.x = 760; bb.sweepBack = false; bb.state = 'HOVER'; bb.cooldown = bb.phase === 2 ? 55 : 80; }
+        }
+        break;
+      case 'DYING':
+        bb.rot += 0.03;
+        bb.y += 1.6;
+        bb.x += Math.sin(bb.t * 0.1) * 1.2;
+        if (bb.t % 9 === 0){
+          FX.burst(bb.x - 40 + Utils.rand() * 80, bb.y - 40 + Utils.rand() * 80, Utils.rand() < 0.5 ? '#ffd94f' : '#ff8a4a', 8, 3);
+          FX.shake(4);
+        }
+        if (bb.t >= 130){
+          FM.boss = null;
+          Game.addScore(3000);
+          Audio.stopMusic();
+          Audio.sfx('victory');
+          Game.setState('VICTORY');
+        }
+        break;
+    }
+  },
+  draw(ctx){
+    const p = FM.p, gp = Game.player;
+    // nova flash
+    if (FM.novaFlash > 0){
+      ctx.fillStyle = 'rgba(125,253,254,' + (FM.novaFlash / 16 * 0.5) + ')';
+      ctx.fillRect(0, 0, CONFIG.VIEW_W, CONFIG.VIEW_H);
+    }
+    // foe bolts (under everything else so they read against sky)
+    for (const b of FM.foeBolts){
+      ctx.fillStyle = '#ff4fd8';
+      ctx.fillRect(Math.round(b.x - 5), Math.round(b.y - 3), 10, 6);
+      ctx.fillStyle = 'rgba(255,79,216,0.4)';
+      ctx.fillRect(Math.round(b.x - 9), Math.round(b.y - 1), 4, 2);
+    }
+    // player bolts
+    for (const b of FM.bolts){
+      ctx.fillStyle = '#7dfdfe';
+      ctx.fillRect(Math.round(b.x - 7), Math.round(b.y - 2), 14, 4);
+      ctx.fillStyle = 'rgba(125,253,254,0.4)';
+      ctx.fillRect(Math.round(b.x - 15), Math.round(b.y - 1), 7, 2);
+    }
+    // foes
+    for (const f of FM.foes) FM.drawFoe(ctx, f);
+    // the Chairman
+    if (FM.boss) FM.drawChairman(ctx, FM.boss);
+    // Jimmy with jetpack
+    FM.drawJetJimmy(ctx);
+    // progress to freedom
+    if (!FM.boss){
+      const prog = Math.min(1, FM.t / FM.bossAt);
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(CONFIG.VIEW_W / 2 - 130, 16, 260, 14);
+      ctx.fillStyle = '#ffd94f';
+      ctx.fillRect(CONFIG.VIEW_W / 2 - 127, 19, Math.round(254 * prog), 8);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('FREEDOM', CONFIG.VIEW_W / 2, 42);
+      ctx.textAlign = 'left';
+    } else if (FM.boss.state !== 'DYING'){
+      const b = FM.boss;
+      const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(W / 2 - 210, H - 58, 420, 44);
+      ctx.fillStyle = '#ffd94f';
+      ctx.font = 'bold 14px "Courier New", monospace';
+      ctx.fillText('THE CHAIRMAN', W / 2, H - 41);
+      ctx.fillStyle = '#3a2a0a';
+      ctx.fillRect(W / 2 - 196, H - 34, 392, 12);
+      ctx.fillStyle = b.phase === 2 ? '#ff8a2a' : '#ffd94f';
+      ctx.fillRect(W / 2 - 196, H - 34, Math.round(392 * b.hp / b.maxHp), 12);
+      ctx.textAlign = 'left';
+    }
+  },
+  drawJetJimmy(ctx){
+    const p = FM.p, gp = Game.player;
+    const c = gp.flash > 0 ? () => '#ffffff' : (col) => col;
+    ctx.save();
+    ctx.translate(Math.round(p.x), Math.round(p.y));
+    if (gp.invuln > 0 && (Game.tick % 6) < 3) ctx.globalAlpha = 0.45;
+    if (FM.novaFlash > 0) ctx.rotate((16 - FM.novaFlash) * 0.5);   // barrel roll
+    else ctx.rotate(Utils.clamp(p.vy * 0.03, -0.25, 0.3) + 0.12);  // lean into flight
+    // jetpack + flame
+    ctx.fillStyle = c('#3a3a4c');
+    ctx.fillRect(-26, -12, 12, 24);
+    ctx.fillStyle = c('#54546a');
+    ctx.fillRect(-26, -12, 12, 5);
+    const flick = (Game.tick % 6) < 3;
+    ctx.fillStyle = flick ? '#ffd94f' : '#ff8a2a';
+    ctx.fillRect(-26 + 1, 12, 10, 8 + (flick ? 5 : 0));
+    ctx.fillStyle = flick ? '#ff8a2a' : '#ffd94f';
+    ctx.fillRect(-26 + 3, 20 + (flick ? 5 : 0), 6, 5);
+    // body horizontal-ish
+    ctx.fillStyle = c('#101018');
+    ctx.fillRect(-14, -12, 26, 22);
+    // legs trailing
+    ctx.fillStyle = c('#15151d');
+    ctx.fillRect(-24, 6, 14, 7);
+    ctx.fillRect(-20, 12, 12, 6);
+    // arms forward with blaster
+    ctx.fillStyle = c('#0c0c14');
+    ctx.fillRect(8, -8, 16, 6);
+    ctx.fillStyle = c('#3a3a4c');
+    ctx.fillRect(22, -10, 12, 9);                              // blaster body
+    ctx.fillStyle = FM.muzzle > 0 ? '#ffffff' : '#7dfdfe';
+    ctx.fillRect(34, -8, FM.muzzle > 0 ? 8 : 4, 5);            // glowing tip
+    // hood + head
+    ctx.fillStyle = c('#0a0a12');
+    ctx.fillRect(-4, -26, 22, 17);
+    ctx.fillStyle = c('#050508');
+    ctx.fillRect(-2, -24, 18, 15);
+    ctx.fillStyle = '#7dfdfe';
+    ctx.fillRect(8, -18, 6, 3);
+    ctx.restore();
+  },
+  drawFoe(ctx, f){
+    ctx.save();
+    ctx.translate(Math.round(f.x), Math.round(f.y));
+    if (f.out){
+      ctx.rotate(f.rot);
+      if (f.outT >= 22){
+        // parachute canopy
+        ctx.rotate(-f.rot);
+        ctx.fillStyle = '#e8e8f0';
+        ctx.fillRect(-18, -46, 36, 12);
+        ctx.fillRect(-14, -50, 28, 6);
+        ctx.strokeStyle = 'rgba(220,220,235,0.8)'; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-16, -34); ctx.lineTo(-8, -12);
+        ctx.moveTo(16, -34); ctx.lineTo(8, -12);
+        ctx.stroke();
+      }
+    }
+    const diver = f.kind === 'diver';
+    // jetpack flame
+    const flick = (Game.tick % 6) < 3;
+    if (!f.out){
+      ctx.fillStyle = flick ? '#ffd94f' : '#ff8a2a';
+      ctx.fillRect(10, 6, 7, 8 + (flick ? 4 : 0));
+    }
+    ctx.fillStyle = '#3a3a4c';
+    ctx.fillRect(8, -8, 9, 16);                                // pack
+    ctx.fillStyle = '#1d1d2e';
+    ctx.fillRect(-10, -10, 18, 22);                            // suit body
+    ctx.fillStyle = '#d8d8e8';
+    ctx.fillRect(-4, -8, 4, 7);                                // shirt
+    ctx.fillStyle = '#0b0b12';
+    ctx.fillRect(-12, -22, 15, 14);                            // head
+    ctx.fillStyle = diver ? '#ff3355' : '#5a5aff';
+    ctx.fillRect(-12, -17, 11, 3);                             // glasses
+    ctx.restore();
+  },
+  drawChairman(ctx, b){
+    ctx.save();
+    ctx.translate(Math.round(b.x), Math.round(b.y));
+    if (b.state === 'DYING') ctx.rotate(b.rot);
+    const winding = b.state === 'SWEEP_WINDUP';
+    if (winding){
+      const pulse = (b.t % 8) < 4;
+      ctx.fillStyle = pulse ? 'rgba(255,180,40,0.4)' : 'rgba(255,255,255,0.2)';
+      ctx.fillRect(-70, -70, 140, 150);
+    }
+    // hover platform with rocket flames
+    ctx.fillStyle = '#1a1428';
+    ctx.fillRect(-60, 42, 120, 18);
+    ctx.fillStyle = '#2c2344';
+    ctx.fillRect(-60, 42, 120, 6);
+    const flick = (Game.tick % 6) < 3;
+    ctx.fillStyle = flick ? '#ffd94f' : '#ff8a2a';
+    ctx.fillRect(-46, 60, 12, 10 + (flick ? 5 : 0));
+    ctx.fillRect(34, 60, 12, 10 + (flick ? 5 : 0));
+    // giant suit
+    ctx.fillStyle = '#15151f';
+    ctx.fillRect(-30, -30, 60, 74);                            // jacket
+    ctx.fillStyle = '#d8d8e8';
+    ctx.fillRect(-6, -26, 12, 22);                             // shirt
+    ctx.fillStyle = '#c8a020';
+    ctx.fillRect(-4, -24, 8, 30);                              // golden tie
+    // arms + briefcase (it opens to fire)
+    ctx.fillStyle = '#15151f';
+    ctx.fillRect(-42, -18, 12, 34);
+    ctx.fillRect(30, -18, 12, 34);
+    const firing = b.state === 'FAN' || b.state === 'WALL';
+    ctx.fillStyle = '#2c2338';
+    ctx.fillRect(-66, 4, 24, firing ? 10 : 18);                // briefcase
+    if (firing){
+      ctx.fillStyle = '#ff4fd8';
+      ctx.fillRect(-66, 14, 24, 8);                            // open, glowing
+    } else {
+      ctx.fillStyle = '#c8a020';
+      ctx.fillRect(-58, 10, 8, 4);                             // clasp
+    }
+    // big head + golden glasses
+    ctx.fillStyle = '#0b0b12';
+    ctx.fillRect(-19, -56, 38, 30);
+    ctx.fillStyle = '#c8a020';
+    ctx.fillRect(-19, -46, 30, 7);
+    ctx.fillStyle = 'rgba(255,255,220,0.7)';
+    ctx.fillRect(-8, -44, 6, 3);                               // glint
+    if (b.phase === 2){
+      ctx.fillStyle = 'rgba(255,40,60,' + (0.3 + 0.2 * Math.sin(Game.tick * 0.3)) + ')';
+      ctx.fillRect(-24, -60, 48, 40);                          // furious aura
+    }
+    ctx.restore();
+  },
+};
+
 /* ============================== Pickup ============================== */
 class Pickup {
   constructor(kind, x, y){
@@ -1467,6 +1976,17 @@ const LEVELS = [
     hazards: [], gaps: [],
     boss: null,
   },
+  {
+    name: 'JETPACK ESCAPE', music: 'flight', bg: 'flight', mode: 'flight',
+    width: 960, floorY: 470,
+    palette: {
+      sky0: '#2a1145', sky1: '#ff8a4a', ground: '#1a0f2e', groundTop: '#1a0f2e',
+      far: '#241238', mid: '#301a4a',
+      neon: ['#ffd94f', '#ff4fd8'],
+    },
+    solids: [], platforms: [], pickups: [], waves: [], strays: [],
+    hazards: [], gaps: [], boss: null,
+  },
 ];
 
 /* ============================== Camera ============================== */
@@ -1526,6 +2046,47 @@ const BG = {
     else if (kind === 'train') BG.bakeTrain(level, W, H, pal);
     else if (kind === 'sewer') BG.bakeSewer(level, W, H, pal);
     else if (kind === 'plane') BG.bakePlane(level, W, H, pal);
+    else if (kind === 'flight') BG.bakeFlight(level, W, H, pal);
+  },
+  bakeFlight(level, W, H, pal){
+    // city far below, drifting past (slow wrap)
+    {
+      const c = BG.make(W, H), g = c.getContext('2d');
+      g.fillStyle = pal.far;
+      let x = 0;
+      while (x < c.width){
+        const bw = 30 + Utils.rand() * 60, bh = 20 + Utils.rand() * 70;
+        g.fillRect(x, 540 - bh, bw, bh);
+        g.fillStyle = 'rgba(255,217,79,0.3)';
+        for (let wx = x + 4; wx < x + bw - 4; wx += 8)
+          if (Utils.rand() < 0.2) g.fillRect(wx, 540 - bh + 4 + Utils.rand() * (bh - 8), 2, 3);
+        g.fillStyle = pal.far;
+        x += bw + Utils.rand() * 24;
+      }
+      BG.layers.push({ canvas: c, factor: 0, y: 0, wrap: true, scroll: 1.2 });
+    }
+    // puffy dawn clouds (mid wrap)
+    {
+      const c = BG.make(W, H), g = c.getContext('2d');
+      for (let i = 0; i < 8; i++){
+        const cx = Utils.rand() * c.width, cy = 90 + Utils.rand() * 330, cw = 100 + Utils.rand() * 130;
+        g.fillStyle = 'rgba(255,190,150,0.20)';
+        g.fillRect(cx, cy, cw, 20);
+        g.fillRect(cx + cw * 0.15, cy - 12, cw * 0.6, 14);
+        g.fillStyle = 'rgba(255,220,190,0.12)';
+        g.fillRect(cx - 14, cy + 14, cw + 28, 12);
+      }
+      BG.layers.push({ canvas: c, factor: 0, y: 0, wrap: true, scroll: 3.2 });
+    }
+    // fast wind streaks (near wrap)
+    {
+      const c = BG.make(W, H), g = c.getContext('2d');
+      g.fillStyle = 'rgba(255,255,255,0.16)';
+      for (let i = 0; i < 16; i++){
+        g.fillRect(Utils.rand() * c.width, 40 + Utils.rand() * 460, 50 + Utils.rand() * 110, 2);
+      }
+      BG.layers.push({ canvas: c, factor: 0, y: 0, wrap: true, scroll: 9 });
+    }
   },
   bakePlane(level, W, H, pal){
     // night sky + moonlit clouds rushing past the windows (wrap)
@@ -2414,9 +2975,11 @@ const HUD = {
       ctx.lineWidth = 3;
       ctx.strokeRect(b.x + 1.5, b.y + 1.5, b.w - 3, b.h - 3);
       ctx.fillStyle = '#ffffff';
-      const big = b.label.length === 1;
+      const flightLabels = { jump: 'FLY', punch: 'FIRE', kick: 'FIRE', tornado: 'NOVA', down: 'DIVE' };
+      const label = (Game.level && Game.level.mode === 'flight' && flightLabels[b.action]) ? flightLabels[b.action] : b.label;
+      const big = label.length === 1;
       ctx.font = big ? 'bold 34px "Courier New", monospace' : 'bold 15px "Courier New", monospace';
-      ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + (big ? 12 : 5));
+      ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2 + (big ? 12 : 5));
     }
     // pause button
     const pb = HUD.pauseButton;
@@ -2505,6 +3068,7 @@ const Game = {
     Tokens.reset(CONFIG.TOKENS[i]);
     Camera.reset(Game.level);
     BG.bake(Game.level);
+    if (Game.level.mode === 'flight') FM.init(Game.level);
     Audio.music(Game.level.music);
     Game.setState('LEVEL_INTRO');
   },
@@ -2751,6 +3315,7 @@ const Game = {
         if (Game.goArrow > 0) Game.goArrow--;
         FX.update();
         if (FX.hitstop > 0) break;   // freeze fighters, world keeps its counters
+        if (Game.level.mode === 'flight'){ FM.update(); break; }
         Game.player.update(Game.level);
         // keep the player inside the scroll region
         Game.player.x = Utils.clamp(Game.player.x, Camera.minX + 16, Camera.maxX + CONFIG.VIEW_W - 16);
@@ -2830,6 +3395,11 @@ const Game = {
     if (Game.state === 'TITLE'){ Game.drawTitle(ctx, W, H); return; }
     const level = Game.level, pal = level.palette;
     BG.drawSky(ctx, level);
+    if (level.mode === 'flight'){
+      BG.draw(ctx, 0);
+      FM.draw(ctx);
+      FX.draw(ctx);
+    } else {
     BG.draw(ctx, Camera.ix);
     // world
     ctx.save();
@@ -2891,6 +3461,7 @@ const Game = {
       ctx.closePath();
       ctx.fill();
       ctx.globalAlpha = 1;
+    }
     }
     // turbulence: warning banner, then flickering cabin lights
     if (Game.turb && Game.turb.phase === 'warn' && (Game.turb.ticks % 14) < 9){
@@ -3231,7 +3802,7 @@ function frame(now){
 Input.init();
 Game.scores = Game.loadScores();
 UIName.show();                        // the game opens on the title screen
-window.__game = { Game, Input, CONFIG, Utils, Audio, FX, Camera, HUD, toScreen, toGame };
+window.__game = { Game, Input, CONFIG, Utils, Audio, FX, Camera, HUD, FM, toScreen, toGame };
 requestAnimationFrame(frame);
 </script>
 </body>
