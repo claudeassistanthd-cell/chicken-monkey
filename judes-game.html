@@ -37,7 +37,8 @@ canvas{display:block;touch-action:none;position:absolute;left:0;top:0;}
 /* ============================== CONFIG ============================== */
 const CONFIG = {
   VIEW_W: 960, VIEW_H: 540,
-  GRAVITY: 0.55, JUMP_V: -11.5, MOVE_SPEED: 3.2,
+  GRAVITY: 0.55, JUMP_V: -11.5, MOVE_SPEED: 3.2, MAX_FALL: 14,
+  COYOTE: 6,
   PLAYER: { hp: 100, lives: 3, invulnAfterHit: 45, w: 28, h: 56, duckH: 34 },
   METER: { perHit: 11, max: 100 },
   ENEMIES: {
@@ -127,55 +128,302 @@ const Audio = {
   music(name){ /* filled in later milestone */ },
 };
 
+/* ================================ FX ================================ */
+const FX = {
+  shakeMag: 0, shakeX: 0, shakeY: 0,
+  hitstop: 0,
+  shake(mag){ FX.shakeMag = Math.max(FX.shakeMag, mag); },
+  stop(ticks){ FX.hitstop = Math.max(FX.hitstop, ticks); },
+  update(){
+    FX.shakeMag *= 0.85;
+    if (FX.shakeMag < 0.3) FX.shakeMag = 0;
+    FX.shakeX = (Utils.rand() - 0.5) * 2 * FX.shakeMag;
+    FX.shakeY = (Utils.rand() - 0.5) * 2 * FX.shakeMag;
+    if (FX.hitstop > 0) FX.hitstop--;
+  },
+};
+
+/* ============================== Physics ============================= */
+/* Shared move-and-collide for all fighters. x,y is the FEET position
+   (bottom center). Solids resolve horizontally always, vertically only
+   from above. Platforms are one-way (land from above only). */
+function bodyBox(f){
+  const h = f.ducking ? f.duckH : f.h;
+  return { x: f.x - f.w / 2, y: f.y - h, w: f.w, h: h };
+}
+function moveAndCollide(f, level){
+  const prevFeet = f.y;
+  // horizontal
+  f.x += f.vx;
+  const bb = bodyBox(f);
+  for (const s of level.solids){
+    if (Utils.aabb(bb, s) && prevFeet > s.y + 1){ // only block sides when not on top
+      if (f.vx > 0 && bb.x + bb.w - s.x < 20){ f.x = s.x - f.w / 2; }
+      else if (f.vx < 0 && s.x + s.w - bb.x < 20){ f.x = s.x + s.w + f.w / 2; }
+      const nb = bodyBox(f); bb.x = nb.x;
+    }
+  }
+  // vertical
+  f.vy = Math.min(f.vy + CONFIG.GRAVITY, CONFIG.MAX_FALL);
+  f.y += f.vy;
+  const wasGrounded = f.grounded;
+  f.grounded = false;
+  if (f.vy >= 0){
+    const box = bodyBox(f);
+    for (const s of level.solids){
+      if (box.x < s.x + s.w && box.x + box.w > s.x && f.y >= s.y && prevFeet <= s.y + 1){
+        f.y = s.y; f.vy = 0; f.grounded = true;
+      }
+    }
+    for (const p of level.platforms){
+      if (box.x < p.x + p.w && box.x + box.w > p.x && f.y >= p.y && prevFeet <= p.y + 1){
+        f.y = p.y; f.vy = 0; f.grounded = true;
+      }
+    }
+  }
+  if (f.grounded) f.coyote = CONFIG.COYOTE;
+  else if (wasGrounded && f.coyote === undefined) f.coyote = CONFIG.COYOTE;
+  else if (f.coyote > 0) f.coyote--;
+}
+/* Is there ground within `ahead` px in front of feet? (enemy ledge check) */
+function groundAhead(f, level, ahead){
+  const px = f.x + f.facing * (f.w / 2 + ahead);
+  for (const s of level.solids){
+    if (px >= s.x && px <= s.x + s.w && Math.abs(s.y - f.y) < 40) return true;
+  }
+  for (const p of level.platforms){
+    if (px >= p.x && px <= p.x + p.w && Math.abs(p.y - f.y) < 40) return true;
+  }
+  return false;
+}
+
+/* ============================== Player ============================== */
+class Player {
+  constructor(){
+    const P = CONFIG.PLAYER;
+    this.w = P.w; this.h = P.h; this.duckH = P.duckH;
+    this.x = 100; this.y = 470; this.vx = 0; this.vy = 0;
+    this.facing = 1; this.grounded = false; this.coyote = 0;
+    this.hp = P.hp; this.meter = 0;
+    this.ducking = false;
+    this.hitstun = 0; this.invuln = 0;
+    this.attack = null;      // {name, phase, ticks, buffered, hitSet}
+    this.comboTimer = 0;
+    this.runTick = 0;
+  }
+  get hurtbox(){ return bodyBox(this); }
+  update(level){
+    if (this.invuln > 0) this.invuln--;
+    if (this.hitstun > 0){
+      this.hitstun--;
+      this.vx *= 0.85;
+      moveAndCollide(this, level);
+      return;
+    }
+    const held = Input.held, pressed = Input.pressed;
+    const attacking = !!this.attack;
+    // movement
+    let dir = 0;
+    if (held.left) dir -= 1;
+    if (held.right) dir += 1;
+    this.ducking = held.down && this.grounded && !attacking;
+    if (!attacking && !this.ducking){
+      this.vx = dir * CONFIG.MOVE_SPEED;
+      if (dir !== 0){ this.facing = dir; this.runTick++; }
+    } else {
+      this.vx = this.grounded ? 0 : this.vx * 0.98;
+    }
+    // jump (with coyote time + early-release cut)
+    if (pressed.jump && !attacking && (this.grounded || this.coyote > 0)){
+      this.vy = CONFIG.JUMP_V;
+      this.grounded = false; this.coyote = 0;
+      Audio.sfx('jump');
+    }
+    if (!held.jump && this.vy < -4) this.vy = -4;
+    moveAndCollide(this, level);
+    if (this.comboTimer > 0) this.comboTimer--;
+  }
+}
+
+/* ============================== LEVELS ============================== */
+/* Greybox level 1 for the physics milestone; real data lands with art. */
+const LEVELS = [
+  {
+    name: 'BACK ALLEYS', music: 'alley', width: 3400, floorY: 470,
+    palette: { sky0: '#1a0b33', sky1: '#3d1263', ground: '#241a38', plat: '#4a3a68' },
+    solids: [ { x: -40, y: 470, w: 3480, h: 90 } ],
+    platforms: [
+      { x: 620,  y: 402, w: 116, kind: 'dumpster' },
+      { x: 1010, y: 414, w: 74,  kind: 'crate' },
+      { x: 1440, y: 392, w: 96,  kind: 'fence' },
+      { x: 2100, y: 402, w: 116, kind: 'dumpster' },
+      { x: 2620, y: 414, w: 74,  kind: 'crate' },
+    ],
+    props: [], pickups: [], waves: [], strays: [], hazards: [], gaps: [],
+    boss: null,
+  },
+];
+
+/* ============================== Camera ============================== */
+const Camera = {
+  x: 0, y: 0,
+  minX: 0, maxX: 99999,
+  reset(level){
+    Camera.x = 0; Camera.y = 0;
+    Camera.minX = 0; Camera.maxX = level.width - CONFIG.VIEW_W;
+  },
+  update(player){
+    const target = player.x - CONFIG.VIEW_W / 2 + player.facing * 80;
+    Camera.x = Utils.lerp(Camera.x, Utils.clamp(target, Camera.minX, Camera.maxX), 0.08);
+  },
+  get ix(){ return Math.round(Camera.x); },
+  get iy(){ return Math.round(Camera.y); },
+};
+
+/* ============================== Drawing ============================= */
+/* Placeholder blocky Jimmy; the full pose system arrives with combat. */
+function drawJimmy(ctx, p){
+  const x = Math.round(p.x), feetY = Math.round(p.y);
+  const duck = p.ducking;
+  const headSize = 20;
+  const bodyH = duck ? 10 : 24, legH = duck ? 4 : 12;
+  const headY = feetY - legH - bodyH - headSize;
+  ctx.save();
+  ctx.translate(x, 0);
+  const fx = p.facing;
+  // legs
+  ctx.fillStyle = '#15151d';
+  const stride = (!p.grounded) ? 5 : (Math.abs(p.vx) > 0.5 ? Math.round(Math.sin(p.runTick * 0.4) * 5) : 0);
+  ctx.fillRect(-8 + stride, feetY - legH, 7, legH);
+  ctx.fillRect(2 - stride, feetY - legH, 7, legH);
+  // hoodie body
+  ctx.fillStyle = '#101018';
+  ctx.fillRect(-11, feetY - legH - bodyH, 22, bodyH);
+  // arms
+  ctx.fillStyle = '#0c0c14';
+  ctx.fillRect(fx > 0 ? 8 : -13, feetY - legH - bodyH + 2, 5, 14);
+  ctx.fillRect(fx > 0 ? -13 : 8, feetY - legH - bodyH + 4, 5, 12);
+  // hood + head
+  ctx.fillStyle = '#0a0a12';
+  ctx.fillRect(-headSize / 2 - 2, headY - 2, headSize + 4, headSize + 3);
+  ctx.fillStyle = '#050508';
+  ctx.fillRect(-headSize / 2, headY, headSize, headSize);
+  // glowing eyes
+  ctx.fillStyle = '#7dfdfe';
+  const eyeX = fx > 0 ? 1 : -7;
+  ctx.fillRect(eyeX, headY + 8, 6, 3);
+  ctx.restore();
+}
+
 /* ============================== Game ================================ */
 const Game = {
   state: 'TITLE',
-  tick: 0,
-  score: 0,
+  tick: 0, stateTick: 0,
+  score: 0, lives: CONFIG.PLAYER.lives,
+  levelIndex: 0, level: null,
+  player: null,
+  enemies: [], pickups: [], boss: null,
+  setState(s){ Game.state = s; Game.stateTick = 0; },
+  loadLevel(i){
+    Game.levelIndex = i;
+    Game.level = LEVELS[i];
+    Game.player = Game.player || new Player();
+    const p = Game.player;
+    p.x = 100; p.y = Game.level.floorY; p.vx = 0; p.vy = 0; p.facing = 1;
+    p.hp = CONFIG.PLAYER.hp;
+    Game.enemies = []; Game.pickups = []; Game.boss = null;
+    Camera.reset(Game.level);
+    Game.setState('LEVEL_INTRO');
+  },
+  startGame(){
+    Game.score = 0; Game.lives = CONFIG.PLAYER.lives;
+    Game.player = new Player();
+    Game.loadLevel(0);
+  },
   update(){
-    Game.tick++;
+    Game.tick++; Game.stateTick++;
     switch (Game.state){
       case 'TITLE':
-        if (Input.pressed.confirm){
-          Game.state = 'PLAYING';
-        }
+        if (Input.pressed.confirm) Game.startGame();
+        break;
+      case 'LEVEL_INTRO':
+        if (Game.stateTick > 90 || Input.pressed.confirm) Game.setState('PLAYING');
         break;
       case 'PLAYING':
-        if (Input.pressed.pause) Game.state = 'PAUSED';
+        if (Input.pressed.pause){ Game.setState('PAUSED'); break; }
+        FX.update();
+        if (FX.hitstop > 0) break;   // freeze fighters, world keeps its counters
+        Game.player.update(Game.level);
+        Camera.update(Game.player);
         break;
       case 'PAUSED':
-        if (Input.pressed.pause || Input.pressed.confirm) Game.state = 'PLAYING';
+        if (Input.pressed.pause || Input.pressed.confirm) Game.setState('PLAYING');
+        break;
+      case 'GAME_OVER':
+        if (Input.pressed.confirm) Game.startGame();
         break;
     }
     Input.consumePressed();
   },
   draw(ctx){
     const W = CONFIG.VIEW_W, H = CONFIG.VIEW_H;
-    ctx.fillStyle = '#140a26';
+    if (Game.state === 'TITLE'){ Game.drawTitle(ctx, W, H); return; }
+    const level = Game.level, pal = level.palette;
+    // sky
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, pal.sky0); grad.addColorStop(1, pal.sky1);
+    ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
+    // world
+    ctx.save();
+    ctx.translate(-Camera.ix + Math.round(FX.shakeX), -Camera.iy + Math.round(FX.shakeY));
+    ctx.fillStyle = pal.ground;
+    for (const s of level.solids) ctx.fillRect(s.x, s.y, s.w, s.h);
+    ctx.fillStyle = pal.plat;
+    for (const p of level.platforms) ctx.fillRect(p.x, p.y, p.w, 14);
+    drawJimmy(ctx, Game.player);
+    ctx.restore();
+    // overlays
     ctx.textAlign = 'center';
-    if (Game.state === 'TITLE'){
+    if (Game.state === 'LEVEL_INTRO'){
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      ctx.fillRect(0, H / 2 - 60, W, 120);
       ctx.fillStyle = '#ff4fd8';
-      ctx.font = 'bold 64px "Courier New", monospace';
-      ctx.fillText("JUDE'S GAME", W/2, 160);
+      ctx.font = 'bold 44px "Courier New", monospace';
+      ctx.fillText('LEVEL ' + (Game.levelIndex + 1), W / 2, H / 2 - 10);
       ctx.fillStyle = '#7dfdfe';
-      ctx.font = 'bold 22px "Courier New", monospace';
-      ctx.fillText('JIMMY CRINKLE VS THE SUIT GUYS', W/2, 205);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '18px "Courier New", monospace';
-      const blink = (Game.tick % 60) < 40;
-      if (blink) ctx.fillText('PRESS ENTER OR TAP TO START', W/2, 420);
-    } else if (Game.state === 'PLAYING'){
-      ctx.fillStyle = '#7dfdfe';
-      ctx.font = 'bold 28px "Courier New", monospace';
-      ctx.fillText('LEVEL 1 COMING SOON', W/2, H/2);
+      ctx.font = 'bold 26px "Courier New", monospace';
+      ctx.fillText(level.name, W / 2, H / 2 + 30);
     } else if (Game.state === 'PAUSED'){
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = '#ffffff';
       ctx.font = 'bold 40px "Courier New", monospace';
-      ctx.fillText('PAUSED', W/2, H/2);
+      ctx.fillText('PAUSED', W / 2, H / 2);
     }
+    ctx.textAlign = 'left';
+  },
+  drawTitle(ctx, W, H){
+    ctx.fillStyle = '#140a26';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff4fd8';
+    ctx.font = 'bold 64px "Courier New", monospace';
+    ctx.fillText("JUDE'S GAME", W / 2, 150);
+    ctx.fillStyle = '#7dfdfe';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillText('JIMMY CRINKLE VS THE SUIT GUYS', W / 2, 195);
+    ctx.fillStyle = '#bbbbcc';
+    ctx.font = '16px "Courier New", monospace';
+    const lines = [
+      'ARROWS / A D  MOVE      W / UP / SPACE  JUMP',
+      'J  PUNCH      K  KICK      L  TORNADO KICK (FULL METER)',
+      'P  PAUSE',
+    ];
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, 280 + i * 28));
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 18px "Courier New", monospace';
+    if ((Game.tick % 60) < 40) ctx.fillText('PRESS ENTER OR TAP TO START', W / 2, 440);
     ctx.textAlign = 'left';
   },
 };
@@ -201,6 +449,14 @@ window.addEventListener('resize', resize);
 window.addEventListener('orientationchange', () => { setTimeout(resize, 250); });
 resize();
 
+/* internal game coords -> CSS pixel coords (touch + tests) */
+function toScreen(gx, gy){
+  return { x: viewOffX + gx * viewScale, y: viewOffY + gy * viewScale };
+}
+function toGame(cx, cy){
+  return { x: (cx - viewOffX) / viewScale, y: (cy - viewOffY) / viewScale };
+}
+
 const STEP = 1000 / 60;
 let acc = 0, last = performance.now();
 function frame(now){
@@ -221,7 +477,7 @@ function frame(now){
 }
 
 Input.init();
-window.__game = { Game, Input, CONFIG, Utils };
+window.__game = { Game, Input, CONFIG, Utils, Audio, FX, Camera, toScreen, toGame };
 requestAnimationFrame(frame);
 </script>
 </body>
